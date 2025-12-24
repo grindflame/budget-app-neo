@@ -22,26 +22,34 @@ const CATEGORIES = [
 ];
 
 export const AddTransactionForm: React.FC = () => {
-    const { addTransaction } = useBudget();
+    const { addTransaction, debts } = useBudget();
     const [desc, setDesc] = useState('');
     const [amount, setAmount] = useState('');
-    const [type, setType] = useState<TransactionType>('expense');
+    const [type, setType] = useState<TransactionType | 'debt'>('expense');
     const [category, setCategory] = useState(CATEGORIES[0]);
+    const [selectedDebtId, setSelectedDebtId] = useState('');
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!desc || !amount) return;
+
         addTransaction({
             description: desc,
             amount: parseFloat(amount),
-            type,
+            type: type as TransactionType,
             category: category || 'Uncategorized',
-            date: new Date().toISOString().split('T')[0]
+            date: new Date().toISOString().split('T')[0],
+            debtAccountId: selectedDebtId || undefined
         });
         setDesc('');
         setAmount('');
         // No reset for category
     };
+
+    // Type selection logic
+    // If user selects "DEBT PAYMENT", show Debt selector.
+    // If user selects "DEBT INTEREST", show Debt selector.
+    const isDebtRelated = type === 'debt' || type === 'debt-payment' || type === 'debt-interest';
 
     return (
         <div className="neo-box">
@@ -79,9 +87,27 @@ export const AddTransactionForm: React.FC = () => {
                     >
                         <option value="expense">EXPENSE</option>
                         <option value="income">INCOME</option>
-                        <option value="debt">DEBT PAYMENT</option>
+                        <option value="debt-payment">DEBT PAYMENT (Reduces Debt)</option>
+                        <option value="debt-interest">DEBT INTEREST (Increases Debt)</option>
                     </select>
                 </div>
+
+                {isDebtRelated && (
+                    <div className="form-group">
+                        <label>LINK TO DEBT ACCOUNT</label>
+                        <select
+                            className="neo-input"
+                            style={{ border: '4px solid var(--neo-pink)' }}
+                            value={selectedDebtId}
+                            onChange={e => setSelectedDebtId(e.target.value)}
+                        >
+                            <option value="">-- No Account / One-off --</option>
+                            {debts.map(d => (
+                                <option key={d.id} value={d.id}>{d.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
 
                 <div className="form-group">
                     <label>CATEGORY</label>

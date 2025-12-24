@@ -1,15 +1,26 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import Papa from 'papaparse';
 
-export type TransactionType = 'income' | 'expense' | 'debt';
+export type TransactionType = 'income' | 'expense' | 'debt-payment' | 'debt-interest';
+// 'debt-payment' reduces linked debt. 'debt-interest' increases linked debt.
+// Legacy 'debt' type will be migrated to 'debt-payment' if found, or kept for backward compat?
+// Ideally we standardize. Let's support 'debt' as alias for 'debt-payment' for now to avoid breaking existing data.
 
 export interface Transaction {
   id: string;
   date: string;
   description: string;
   amount: number;
-  type: TransactionType;
+  type: TransactionType | 'debt';
   category: string;
+  debtAccountId?: string; // Optional link to a DebtAccount
+}
+
+export interface DebtAccount {
+  id: string;
+  name: string;
+  startingBalance: number;
+  // Current Balance is calculated: Starting - Payments + Interest
 }
 
 interface User {
@@ -24,11 +35,15 @@ export interface CategoryBudget {
 
 interface BudgetContextType {
   transactions: Transaction[];
+  debts: DebtAccount[];
   user: User | null;
   categoryBudgets: Record<string, number>;
   addTransaction: (t: Omit<Transaction, 'id'>) => void;
   editTransaction: (id: string, updated: Omit<Transaction, 'id'>) => void;
   deleteTransaction: (id: string) => void;
+  addDebt: (d: Omit<DebtAccount, 'id'>) => void;
+  editDebt: (id: string, updated: Omit<DebtAccount, 'id'>) => void;
+  deleteDebt: (id: string) => void;
   setCategoryBudget: (category: string, limit: number) => void;
   importCSV: (file: File) => Promise<void>;
   clearAll: () => void;
@@ -59,6 +74,11 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return saved ? JSON.parse(saved) : {};
   });
 
+  const [debts, setDebts] = useState<DebtAccount[]>(() => {
+    const saved = localStorage.getItem('budget_debts');
+    return saved ? JSON.parse(saved) : [];
+  });
+
   const [user, setUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('budget_user');
     return saved ? JSON.parse(saved) : null;
@@ -69,6 +89,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   useEffect(() => {
     localStorage.setItem('budget_transactions', JSON.stringify(transactions));
+    localStorage.setItem('budget_debts', JSON.stringify(debts));
+    localStorage.setItem('budget_limits', JSON.stringify(categoryBudgets));
 
     // Auto-sync logic
     if (user) {
@@ -77,18 +99,33 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setIsSyncing(true);
       syncTimeoutRef.current = setTimeout(async () => {
         try {
+          // Determine full state to sync
+          // Note: The backend currently expects { transactions }. We need to possibly payload more.
+          // We'll stuff debts/budgets into specific "System" transactions or just update backend later?
+          // Actually, for now, let's just stick to local persistence for Debts/Budgets unless we update backend schema.
+          // WAIT -> The user explicitly asked for Cloud Sync.
+          // The backend API `functions/api/sync.ts` takes arbitrary JSON body and stores it in KV.
+          // So we can just change the payload structure! Env -> KV accepts JSON.
+          // However, the types in `sync.ts` expect `transactions`.
+          // Let's assume the backend saves whatever we send if we didn't type check strictly or if we update the call.
+          // The `sync.ts` just does `const { ... transactions } = body`.
+          // We need to update `sync.ts` to accept `debts` and `categoryBudgets` too.
+          // But for this precise step, I can't edit `sync.ts` safely while defining Context.
+          // Let's hope the backend is flexible or I will update `sync.ts` in next step.
+          // Actually, I can send them as part of the body, and if `sync.ts` only extracts `transactions`, we lose data.
+          // I MUST update `sync.ts`.
+          const payload = {
+            email: user.email,
+            password: user.key,
+            transactions,
+            debts,
+            categoryBudgets
+          };
+
           const res = await fetch('/api/sync', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email: user.email,
-              password: user.key,
-              transactions,
-              // We should probably sync budgets too, but keeping it simple for now or adding it to the payload
-              // For this iteration, let's just stick to transactions in the main sync payload unless we update the backend.
-              // Ideally we update backend to accept arbitrary data, but let's just piggyback budget limits into a transaction? 
-              // No, let's just sync transactions for now as requested by "autosync on new entries".
-            })
+            body: JSON.stringify(payload)
           });
           if (!res.ok) console.error("Auto-sync failed", await res.text());
         } catch (e) {
@@ -96,13 +133,9 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         } finally {
           setIsSyncing(false);
         }
-      }, 2000); // 2 second debounce
+      }, 2000);
     }
-  }, [transactions, user]);
-
-  useEffect(() => {
-    localStorage.setItem('budget_limits', JSON.stringify(categoryBudgets));
-  }, [categoryBudgets]);
+  }, [transactions, user, debts, categoryBudgets]);
 
   const addTransaction = (t: Omit<Transaction, 'id'>) => {
     const newTransaction = { ...t, id: crypto.randomUUID() };
@@ -117,24 +150,34 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setTransactions(prev => prev.filter(t => t.id !== id));
   };
 
+  const addDebt = (d: Omit<DebtAccount, 'id'>) => {
+    setDebts(prev => [...prev, { ...d, id: crypto.randomUUID() }]);
+  };
+
+  const editDebt = (id: string, updated: Omit<DebtAccount, 'id'>) => {
+    setDebts(prev => prev.map(d => d.id === id ? { ...updated, id } : d));
+  };
+
+  const deleteDebt = (id: string) => {
+    setDebts(prev => prev.filter(d => d.id !== id));
+    // Also unlink transactions?
+    setTransactions(prev => prev.map(t => t.debtAccountId === id ? { ...t, debtAccountId: undefined } : t));
+  };
+
   const setCategoryBudget = (category: string, limit: number) => {
     setCategoryBudgets(prev => ({ ...prev, [category]: limit }));
   };
 
   const clearAll = () => {
     setTransactions([]);
+    setDebts([]);
     setCategoryBudgets({});
   };
 
   const importCSV = (file: File): Promise<void> => {
     return new Promise((resolve, reject) => {
-      // First, we need to check if it's the specific "Quick Fix" format or a generic one.
-      // The Quick Fix format has headers on line 1: ,Date of Transaction,Description,Category,Income,Debits,Balance...
-      // but "Date of Transaction" is column 2 (index 1).
-      // Standard PapaParse with header:true might fail if the first column is empty or header is offset.
-
       Papa.parse(file, {
-        header: false, // Parse as array of arrays first to inspect structure
+        header: false,
         skipEmptyLines: true,
         complete: (results) => {
           try {
@@ -145,58 +188,46 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             }
 
             const parsed: Transaction[] = [];
-
-            // Extract Budgets from CSV if possible?
-            // The CSV has "Contribution Target" and "Budget Target" columns.
-            // Let's try to parse them.
             const newBudgets: Record<string, number> = {};
 
-            // Check for "Quick Fix" format
-            // Look for a row that contains "Date of Transaction"
             const headerRowIndex = rows.findIndex(r => r.includes("Date of Transaction"));
+            const budgetHeaderRow = rows.findIndex(r => r.includes("Budget Target"));
 
-            if (headerRowIndex !== -1) {
-              // Quick Fix Format
-              const header = rows[headerRowIndex];
-              const dateIdx = header.indexOf("Date of Transaction");
-              const descIdx = header.indexOf("Description");
-              const catIdx = header.indexOf("Category"); // Note: In CSV it looks like "Category"
-              const incomeIdx = header.findIndex(h => h.trim() === "Income");
-              const debitIdx = header.findIndex(h => h.trim() === "Debits");
+            // Parse Budgets
+            if (budgetHeaderRow !== -1) {
+              const bHeader = rows[budgetHeaderRow];
+              const catColIdx = bHeader.indexOf("Expenses");
+              const targetColIdx = bHeader.indexOf("Budget Target");
 
-              // Also look for Budget Targets (often in a separate table side-by-side or scattered)
-              // In your file, rows 12-27 cols K, L, M seem to be budget info: "Rent & Utilities", "$ 33.90", "$ 40.00"
-              // Let's SCAN the whole sheet for the "Expenses" / "Budget Target" block.
-              const budgetHeaderRow = rows.findIndex(r => r.includes("Budget Target"));
-              if (budgetHeaderRow !== -1) {
-                const bHeader = rows[budgetHeaderRow];
-                const catColIdx = bHeader.indexOf("Expenses"); // "Expenses" column usually holds category names in this budget block
-                const targetColIdx = bHeader.indexOf("Budget Target");
-
-                if (catColIdx !== -1 && targetColIdx !== -1) {
-                  for (let i = budgetHeaderRow + 1; i < rows.length; i++) {
-                    const r = rows[i];
-                    if (!r[catColIdx]) continue;
-                    const catName = r[catColIdx];
-                    const targetValStr = r[targetColIdx];
-                    if (catName && targetValStr) {
-                      const val = parseFloat(targetValStr.replace(/[$,]/g, ''));
-                      if (!isNaN(val) && val > 0) {
-                        newBudgets[catName] = val;
-                      }
+              if (catColIdx !== -1 && targetColIdx !== -1) {
+                for (let i = budgetHeaderRow + 1; i < rows.length; i++) {
+                  const r = rows[i];
+                  if (!r[catColIdx]) continue;
+                  const catName = r[catColIdx];
+                  const targetValStr = r[targetColIdx];
+                  if (catName && targetValStr) {
+                    const val = parseFloat(targetValStr.replace(/[$,]/g, ''));
+                    if (!isNaN(val) && val > 0) {
+                      newBudgets[catName] = val;
                     }
                   }
                 }
               }
+            }
 
-              // Iterate rows after header for transactions
+            if (headerRowIndex !== -1) {
+              const header = rows[headerRowIndex];
+              const dateIdx = header.indexOf("Date of Transaction");
+              const descIdx = header.indexOf("Description");
+              const catIdx = header.indexOf("Category");
+              const incomeIdx = header.findIndex(h => h.trim() === "Income");
+              const debitIdx = header.findIndex(h => h.trim() === "Debits");
+
               for (let i = headerRowIndex + 1; i < rows.length; i++) {
                 const row = rows[i];
-                // Must have a date
                 if (!row[dateIdx]) continue;
 
                 const dateStr = row[dateIdx];
-                // Parse Date: 11/1/2025 or 11/1 (assume current year if missing)
                 let finalDate = new Date().toISOString().split('T')[0];
                 try {
                   const parts = dateStr.split('/');
@@ -212,12 +243,10 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
                 const desc = row[descIdx];
                 let category = row[catIdx];
-                // Clean category if needed
                 if (!category) category = 'Uncategorized';
 
-                // Determine Amount and Type
                 let amount = 0;
-                let type: TransactionType = 'expense';
+                let type: TransactionType | 'debt' = 'expense';
 
                 const incomeVal = row[incomeIdx] ? parseFloat(row[incomeIdx].replace(/[$,]/g, '')) : 0;
                 const debitVal = row[debitIdx] ? parseFloat(row[debitIdx].replace(/[$,]/g, '')) : 0;
@@ -228,9 +257,9 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                 } else if (debitVal > 0) {
                   amount = debitVal;
                   type = 'expense';
-                  // Heuristic for Debt based on keywords? Or just expense default
                   if (category.toLowerCase().includes('loan') || category.toLowerCase().includes('debt')) {
-                    type = 'debt';
+                    // Map to debt-payment by default for now
+                    type = 'debt-payment';
                   }
                 }
 
@@ -291,14 +320,20 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const syncToCloud = async (email: string, pw: string): Promise<boolean> => {
     try {
+      const payload = {
+        email,
+        password: pw,
+        transactions,
+        debts,
+        categoryBudgets
+      };
       const res = await fetch('/api/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password: pw, transactions })
+        body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error(await res.text());
 
-      // Save user session on success
       const newUser = { email, key: pw };
       setUser(newUser);
       localStorage.setItem('budget_user', JSON.stringify(newUser));
@@ -316,11 +351,13 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       const data = await res.json();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if (data.transactions && Array.isArray(data.transactions)) {
-        if (confirm(`Overwrite local data with ${data.transactions.length} transactions from cloud (Last Updated: ${data.lastUpdated})?`)) {
-          setTransactions(data.transactions);
+      // We accept data even if just transactions exist
+      if (data.transactions || data.debts || data.categoryBudgets) {
+        if (confirm(`Overwrite local data with Cloud Data?`)) {
+          if (data.transactions) setTransactions(data.transactions);
+          if (data.debts) setDebts(data.debts);
+          if (data.categoryBudgets) setCategoryBudgets(data.categoryBudgets);
 
-          // Save user session on success
           const newUser = { email, key: pw };
           setUser(newUser);
           localStorage.setItem('budget_user', JSON.stringify(newUser));
@@ -340,7 +377,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   return (
-    <BudgetContext.Provider value={{ transactions, user, categoryBudgets, addTransaction, editTransaction, deleteTransaction, setCategoryBudget, importCSV, clearAll, syncToCloud, loadFromCloud, logout, isSyncing }}>
+    <BudgetContext.Provider value={{ transactions, debts, user, categoryBudgets, addTransaction, editTransaction, deleteTransaction, addDebt, editDebt, deleteDebt, setCategoryBudget, importCSV, clearAll, syncToCloud, loadFromCloud, logout, isSyncing }}>
       {children}
     </BudgetContext.Provider>
   );

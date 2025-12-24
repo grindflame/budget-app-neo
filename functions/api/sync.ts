@@ -7,6 +7,8 @@ interface Env {
 interface SyncData {
     passwordHash: string; // Simple hash/token
     transactions: any[];
+    debts?: any[];        // Added debts
+    categoryBudgets?: any; // Added budgets
     lastUpdated: string;
 }
 
@@ -22,9 +24,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     try {
         const { request, env } = context;
         const body: any = await request.json();
-        const { email, password, transactions } = body;
+        const { email, password, transactions, debts, categoryBudgets } = body;
 
-        if (!email || !password || !transactions) {
+        // Validation - at least transactions must exist? Or loose?
+        if (!email || !password) {
             return new Response("Missing fields", { status: 400 });
         }
 
@@ -41,7 +44,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
         const data: SyncData = {
             passwordHash: newHash,
-            transactions,
+            transactions: transactions || [],
+            debts: debts || [],
+            categoryBudgets: categoryBudgets || {},
             lastUpdated: new Date().toISOString()
         };
 
@@ -80,6 +85,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
         return new Response(JSON.stringify({
             transactions: existing.transactions,
+            debts: existing.debts || [],
+            categoryBudgets: existing.categoryBudgets || {},
             lastUpdated: existing.lastUpdated
         }), {
             headers: { "Content-Type": "application/json" }
