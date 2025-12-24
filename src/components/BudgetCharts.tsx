@@ -1,9 +1,11 @@
 import React, { useMemo } from 'react';
 import type { Transaction } from '../context/BudgetContext';
+import { useBudget } from '../context/BudgetContext';
 import {
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip,
+    ComposedChart, Line
 } from 'recharts';
-import { TrendingUp } from 'lucide-react';
+import { TrendingUp, Target } from 'lucide-react';
 import { subMonths, format, parseISO } from 'date-fns';
 
 interface BudgetChartsProps {
@@ -12,6 +14,8 @@ interface BudgetChartsProps {
 }
 
 export const BudgetCharts: React.FC<BudgetChartsProps> = ({ transactions, currentMonth }) => {
+    const { categoryBudgets } = useBudget();
+
     // 1. Calculate 3-Month Rolling Average Income
     const rollingAvgIncome = useMemo(() => {
         const today = parseISO(currentMonth + '-01');
@@ -57,6 +61,28 @@ export const BudgetCharts: React.FC<BudgetChartsProps> = ({ transactions, curren
         }
         return data;
     }, [transactions, currentMonth]);
+
+    // 3. Category Breakdown with Targets
+    const categoryData = useMemo(() => {
+        // Only current month
+        const relevantT = transactions.filter(t => t.date.startsWith(currentMonth) && t.type !== 'income');
+
+        // Group by category
+        const groups: Record<string, number> = {};
+        relevantT.forEach(t => {
+            groups[t.category] = (groups[t.category] || 0) + t.amount;
+        });
+
+        // Convert to array
+        const result = Object.keys(groups).map(cat => ({
+            name: cat,
+            actual: groups[cat],
+            budget: categoryBudgets[cat] || 0
+        }));
+
+        // Sort by highest spend
+        return result.sort((a, b) => b.actual - a.actual);
+    }, [transactions, currentMonth, categoryBudgets]);
 
     return (
         <div className="charts-grid">
@@ -105,6 +131,39 @@ export const BudgetCharts: React.FC<BudgetChartsProps> = ({ transactions, curren
                     </ResponsiveContainer>
                 </div>
             </div>
+
+            {/* Category Performance vs Budget - Only show if data exists */}
+            {categoryData.length > 0 && (
+                <div className="neo-box" style={{ gridColumn: 'span 3', marginTop: '1rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
+                        <Target size={28} />
+                        <h3 style={{ margin: 0 }}>CATEGORY SPEND vs TARGETS ({format(parseISO(currentMonth + '-01'), 'MMMM')})</h3>
+                    </div>
+
+                    <div style={{ width: '100%', height: 400 }}>
+                        <ResponsiveContainer>
+                            <ComposedChart data={categoryData} layout="vertical" margin={{ top: 20, right: 20, bottom: 20, left: 100 }}>
+                                <CartesianGrid stroke="#ccc" horizontal={false} />
+                                <XAxis type="number" stroke="#000" tick={{ fill: 'black', fontWeight: 'bold' }} axisLine={{ strokeWidth: 3 }} />
+                                <YAxis dataKey="name" type="category" stroke="#000" tick={{ fill: 'black', fontWeight: 'bold' }} width={120} axisLine={{ strokeWidth: 3 }} />
+                                <Tooltip
+                                    cursor={{ fill: '#f0f0f0' }}
+                                    contentStyle={{
+                                        border: '3px solid black',
+                                        boxShadow: '4px 4px 0px #000',
+                                        fontWeight: 'bold'
+                                    }}
+                                />
+                                {/* The actual spend */}
+                                <Bar dataKey="actual" name="Actual Spend" fill="var(--neo-yellow)" stroke="#000" strokeWidth={2} barSize={20} />
+                                {/* The Budget Target Line */}
+                                <Line dataKey="budget" name="Budget Target" stroke="red" strokeWidth={4} dot={{ r: 6, fill: 'red', stroke: 'black', strokeWidth: 2 }} type="step" />
+                            </ComposedChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+            )}
+
 
             <style>{`
         .charts-grid {

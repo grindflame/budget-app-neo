@@ -1,14 +1,42 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useBudget } from '../context/BudgetContext';
-import type { Transaction } from '../context/BudgetContext';
-import { Trash2 } from 'lucide-react';
+import type { Transaction, TransactionType } from '../context/BudgetContext';
+import { Trash2, Edit2, Save, X } from 'lucide-react';
+import { format, parseISO } from 'date-fns';
+
+const CATEGORIES = [
+    "Rent & Utilities",
+    "Food/Beverages/Groceries",
+    "Transportation/Gas",
+    "Personal Subscription",
+    "Business Subscription",
+    "Personal Purchase",
+    "Business Purchase",
+    "Entertainment/Fun",
+    "Interest / Fees",
+    "Health",
+    "Travel",
+    "Loan Payments",
+    "Donation",
+    "Coffee Shops",
+    "Other",
+    "Uncategorized"
+];
 
 interface TransactionListProps {
     transactions: Transaction[];
 }
 
 export const TransactionList: React.FC<TransactionListProps> = ({ transactions }) => {
-    const { deleteTransaction } = useBudget();
+    const { deleteTransaction, editTransaction } = useBudget();
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [editForm, setEditForm] = useState<Omit<Transaction, 'id'>>({
+        date: '',
+        description: '',
+        amount: 0,
+        type: 'expense',
+        category: ''
+    });
 
     if (transactions.length === 0) {
         return (
@@ -21,6 +49,35 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions }
     // Sort by date desc
     const sorted = [...transactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
+    const startEdit = (t: Transaction) => {
+        setEditingId(t.id);
+        setEditForm({
+            date: t.date,
+            description: t.description,
+            amount: t.amount,
+            type: t.type,
+            category: t.category
+        });
+    };
+
+    const cancelEdit = () => {
+        setEditingId(null);
+    };
+
+    const saveEdit = (id: string) => {
+        editTransaction(id, editForm);
+        setEditingId(null);
+    };
+
+    // Helper to format Date nicely
+    const formatDate = (dateStr: string) => {
+        try {
+            return format(parseISO(dateStr), 'MMM d, yyyy'); // e.g. Nov 23, 2025
+        } catch (e) {
+            return dateStr;
+        }
+    };
+
     return (
         <div className="neo-box">
             <h3 style={{ borderBottom: '4px solid black', paddingBottom: '0.5rem', marginBottom: '1.5rem' }}>History</h3>
@@ -32,38 +89,116 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions }
                             <th>DESC</th>
                             <th>CATEGORY</th>
                             <th style={{ textAlign: 'right' }}>AMOUNT</th>
-                            <th style={{ width: '50px' }}></th>
+                            <th style={{ width: '80px', textAlign: 'center' }}>ACT</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {sorted.map(t => (
-                            <tr key={t.id} className="row-hover">
-                                <td>{t.date}</td>
-                                <td style={{ fontWeight: 'bold' }}>{t.description}</td>
-                                <td>
-                                    <span className="badge">{t.category}</span>
-                                </td>
-                                <td style={{
-                                    textAlign: 'right',
-                                    color: t.type === 'income' ? 'var(--neo-green)' :
-                                        t.type === 'debt' ? 'var(--neo-pink)' : 'black',
-                                    fontWeight: 900,
-                                    fontSize: '1.1rem'
-                                }}>
-                                    {t.type === 'income' ? '+' : ''}{t.type === 'expense' ? '-' : ''}
-                                    ${t.amount.toFixed(2)}
-                                </td>
-                                <td style={{ textAlign: 'center' }}>
-                                    <button
-                                        onClick={() => deleteTransaction(t.id)}
-                                        className="delete-btn"
-                                        title="Delete"
-                                    >
-                                        <Trash2 size={18} />
-                                    </button>
-                                </td>
-                            </tr>
-                        ))}
+                        {sorted.map(t => {
+                            const isEditing = editingId === t.id;
+                            return (
+                                <tr key={t.id} className={isEditing ? 'row-editing' : 'row-hover'}>
+                                    {/* DATE */}
+                                    <td>
+                                        {isEditing ? (
+                                            <input
+                                                className="edit-input"
+                                                type="date"
+                                                value={editForm.date}
+                                                onChange={e => setEditForm({ ...editForm, date: e.target.value })}
+                                            />
+                                        ) : (
+                                            formatDate(t.date)
+                                        )}
+                                    </td>
+
+                                    {/* DESCRIPTION */}
+                                    <td style={{ fontWeight: 'bold' }}>
+                                        {isEditing ? (
+                                            <input
+                                                className="edit-input"
+                                                value={editForm.description}
+                                                onChange={e => setEditForm({ ...editForm, description: e.target.value })}
+                                            />
+                                        ) : (
+                                            t.description
+                                        )}
+                                    </td>
+
+                                    {/* CATEGORY */}
+                                    <td>
+                                        {isEditing ? (
+                                            <select
+                                                className="edit-input"
+                                                value={editForm.category}
+                                                onChange={e => setEditForm({ ...editForm, category: e.target.value })}
+                                            >
+                                                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                            </select>
+                                        ) : (
+                                            <span className="badge">{t.category}</span>
+                                        )}
+                                    </td>
+
+                                    {/* AMOUNT */}
+                                    <td style={{ textAlign: 'right' }}>
+                                        {isEditing ? (
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '5px' }}>
+                                                <select
+                                                    className="edit-input"
+                                                    style={{ width: '40px', padding: '0 2px' }}
+                                                    value={editForm.type}
+                                                    onChange={e => setEditForm({ ...editForm, type: e.target.value as TransactionType })}
+                                                >
+                                                    <option value="expense">-</option>
+                                                    <option value="income">+</option>
+                                                    <option value="debt">D</option>
+                                                </select>
+                                                <input
+                                                    className="edit-input"
+                                                    type="number"
+                                                    style={{ width: '80px', textAlign: 'right' }}
+                                                    value={editForm.amount}
+                                                    onChange={e => setEditForm({ ...editForm, amount: parseFloat(e.target.value) })}
+                                                />
+                                            </div>
+                                        ) : (
+                                            <span style={{
+                                                color: t.type === 'income' ? 'var(--neo-green)' :
+                                                    t.type === 'debt' ? 'var(--neo-pink)' : 'black',
+                                                fontWeight: 900,
+                                                fontSize: '1.1rem'
+                                            }}>
+                                                {t.type === 'income' ? '+' : ''}{t.type === 'expense' ? '-' : ''}
+                                                ${t.amount.toFixed(2)}
+                                            </span>
+                                        )}
+                                    </td>
+
+                                    {/* ACTIONS */}
+                                    <td style={{ textAlign: 'center' }}>
+                                        {isEditing ? (
+                                            <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
+                                                <button onClick={() => saveEdit(t.id)} className="action-btn save" title="Save">
+                                                    <Save size={16} />
+                                                </button>
+                                                <button onClick={cancelEdit} className="action-btn cancel" title="Cancel">
+                                                    <X size={16} />
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
+                                                <button onClick={() => startEdit(t)} className="action-btn edit" title="Edit">
+                                                    <Edit2 size={16} />
+                                                </button>
+                                                <button onClick={() => deleteTransaction(t.id)} className="action-btn delete" title="Delete">
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </div>
+                                        )}
+                                    </td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
@@ -93,6 +228,9 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions }
         .row-hover:hover {
             background: #f0f0f0;
         }
+        .row-editing {
+            background: #fffbe6;
+        }
         .badge {
           background: #eee;
           border: 2px solid black;
@@ -103,19 +241,36 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions }
           text-transform: uppercase;
           box-shadow: 2px 2px 0 black;
         }
-        .delete-btn {
+        
+        .action-btn {
             background: none;
-            border: 2px solid transparent;
+            border: 2px solid black;
             cursor: pointer;
-            color: #aaa;
             padding: 4px;
-            transition: all 0.2s;
+            transition: all 0.1s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 2px 2px 0 black;
         }
-        .delete-btn:hover {
-            color: red;
-            background: #ffe6e6;
-            border: 2px solid red;
-            box-shadow: 2px 2px 0 red;
+        .action-btn:active {
+            transform: translate(2px, 2px);
+            box-shadow: 0 0 0 black;
+        }
+        .action-btn.edit { background: white; }
+        .action-btn.delete { background: white; color: red; border-color: red; box-shadow: 2px 2px 0 red; }
+        .action-btn.delete:hover { background: #ffe6e6; }
+        
+        .action-btn.save { background: var(--neo-green); color: black; }
+        .action-btn.cancel { background: white; }
+
+        .edit-input {
+            border: 2px solid black;
+            padding: 4px;
+            font-family: inherit;
+            font-size: 0.9rem;
+            width: 100%;
+            background: white;
         }
       `}</style>
         </div>

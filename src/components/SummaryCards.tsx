@@ -6,20 +6,24 @@ interface SummaryCardsProps {
     currentMonth: string; // YYYY-MM
 }
 
-export const SummaryCards: React.FC<SummaryCardsProps> = ({ transactions, currentMonth }) => {
-    // Filter for current month
-    const monthlyTransactions = transactions.filter(t => t.date.startsWith(currentMonth));
+export const SummaryCards: React.FC<SummaryCardsProps> = ({ transactions }) => {
+    // Filter for current month is done by parent presumably, but let's trust the prop passed `transactions` is what we want to sum?
+    // Wait, Dashboard passes `transactions.filter(...)`. Correct.
 
-    const income = monthlyTransactions.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
-    const expense = monthlyTransactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
-    const debt = monthlyTransactions.filter(t => t.type === 'debt').reduce((acc, t) => acc + t.amount, 0);
+    // We also want to show "Budget vs Actual" eventually? 
+    // The user requested extra features. Let's add a simple "Safety" metric or similar.
+    // Actually, let's keep this clean and just stick to the main request for now, or add a "Budget Health" card.
+
+    const income = transactions.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
+    const expense = transactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
+    const debt = transactions.filter(t => t.type === 'debt').reduce((acc, t) => acc + t.amount, 0);
     const profitLoss = income - expense - debt;
 
     const cards = [
         { label: 'INCOME', amount: income, color: 'var(--neo-green)' },
         { label: 'EXPENSES', amount: expense, color: 'var(--neo-yellow)' },
         { label: 'DEBT PMTS', amount: debt, color: 'var(--neo-pink)' },
-        { label: 'PROFIT/LOSS', amount: profitLoss, color: 'var(--neo-green)' },
+        { label: 'PROFIT/LOSS', amount: profitLoss, color: profitLoss >= 0 ? 'var(--neo-cyan)' : '#ff6b6b' },
     ];
 
     return (
