@@ -1,10 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import Papa from 'papaparse';
 
-export type TransactionType = 'income' | 'expense' | 'debt-payment' | 'debt-interest';
-// 'debt-payment' reduces linked debt. 'debt-interest' increases linked debt.
-// Legacy 'debt' type will be migrated to 'debt-payment' if found, or kept for backward compat?
-// Ideally we standardize. Let's support 'debt' as alias for 'debt-payment' for now to avoid breaking existing data.
+export type TransactionType = 'income' | 'expense' | 'debt-payment' | 'debt-interest' | 'asset-deposit' | 'asset-growth';
 
 export interface Transaction {
   id: string;
@@ -13,14 +10,20 @@ export interface Transaction {
   amount: number;
   type: TransactionType | 'debt';
   category: string;
-  debtAccountId?: string; // Optional link to a DebtAccount
+  debtAccountId?: string;
+  assetAccountId?: string; // Link to Asset
 }
 
 export interface DebtAccount {
   id: string;
   name: string;
   startingBalance: number;
-  // Current Balance is calculated: Starting - Payments + Interest
+}
+
+export interface AssetAccount {
+  id: string;
+  name: string;
+  startingBalance: number;
 }
 
 interface User {
@@ -36,14 +39,22 @@ export interface CategoryBudget {
 interface BudgetContextType {
   transactions: Transaction[];
   debts: DebtAccount[];
+  assets: AssetAccount[]; // New
   user: User | null;
   categoryBudgets: Record<string, number>;
+
   addTransaction: (t: Omit<Transaction, 'id'>) => void;
   editTransaction: (id: string, updated: Omit<Transaction, 'id'>) => void;
   deleteTransaction: (id: string) => void;
+
   addDebt: (d: Omit<DebtAccount, 'id'>) => void;
   editDebt: (id: string, updated: Omit<DebtAccount, 'id'>) => void;
   deleteDebt: (id: string) => void;
+
+  addAsset: (a: Omit<AssetAccount, 'id'>) => void; // New
+  editAsset: (id: string, updated: Omit<AssetAccount, 'id'>) => void; // New
+  deleteAsset: (id: string) => void; // New
+
   setCategoryBudget: (category: string, limit: number) => void;
   importCSV: (file: File) => Promise<void>;
   clearAll: () => void;
@@ -79,6 +90,11 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return saved ? JSON.parse(saved) : [];
   });
 
+  const [assets, setAssets] = useState<AssetAccount[]>(() => {
+    const saved = localStorage.getItem('budget_assets');
+    return saved ? JSON.parse(saved) : [];
+  });
+
   const [user, setUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('budget_user');
     return saved ? JSON.parse(saved) : null;
@@ -90,6 +106,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   useEffect(() => {
     localStorage.setItem('budget_transactions', JSON.stringify(transactions));
     localStorage.setItem('budget_debts', JSON.stringify(debts));
+    localStorage.setItem('budget_assets', JSON.stringify(assets));
     localStorage.setItem('budget_limits', JSON.stringify(categoryBudgets));
 
     // Auto-sync logic
@@ -99,26 +116,12 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setIsSyncing(true);
       syncTimeoutRef.current = setTimeout(async () => {
         try {
-          // Determine full state to sync
-          // Note: The backend currently expects { transactions }. We need to possibly payload more.
-          // We'll stuff debts/budgets into specific "System" transactions or just update backend later?
-          // Actually, for now, let's just stick to local persistence for Debts/Budgets unless we update backend schema.
-          // WAIT -> The user explicitly asked for Cloud Sync.
-          // The backend API `functions/api/sync.ts` takes arbitrary JSON body and stores it in KV.
-          // So we can just change the payload structure! Env -> KV accepts JSON.
-          // However, the types in `sync.ts` expect `transactions`.
-          // Let's assume the backend saves whatever we send if we didn't type check strictly or if we update the call.
-          // The `sync.ts` just does `const { ... transactions } = body`.
-          // We need to update `sync.ts` to accept `debts` and `categoryBudgets` too.
-          // But for this precise step, I can't edit `sync.ts` safely while defining Context.
-          // Let's hope the backend is flexible or I will update `sync.ts` in next step.
-          // Actually, I can send them as part of the body, and if `sync.ts` only extracts `transactions`, we lose data.
-          // I MUST update `sync.ts`.
           const payload = {
             email: user.email,
             password: user.key,
             transactions,
             debts,
+            assets, // Sync assets
             categoryBudgets
           };
 
@@ -135,7 +138,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
       }, 2000);
     }
-  }, [transactions, user, debts, categoryBudgets]);
+  }, [transactions, user, debts, assets, categoryBudgets]);
 
   const addTransaction = (t: Omit<Transaction, 'id'>) => {
     const newTransaction = { ...t, id: crypto.randomUUID() };
@@ -160,9 +163,22 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const deleteDebt = (id: string) => {
     setDebts(prev => prev.filter(d => d.id !== id));
-    // Also unlink transactions?
     setTransactions(prev => prev.map(t => t.debtAccountId === id ? { ...t, debtAccountId: undefined } : t));
   };
+
+  const addAsset = (a: Omit<AssetAccount, 'id'>) => {
+    setAssets(prev => [...prev, { ...a, id: crypto.randomUUID() }]);
+  };
+
+  const editAsset = (id: string, updated: Omit<AssetAccount, 'id'>) => {
+    setAssets(prev => prev.map(a => a.id === id ? { ...updated, id } : a));
+  };
+
+  const deleteAsset = (id: string) => {
+    setAssets(prev => prev.filter(a => a.id !== id));
+    setTransactions(prev => prev.map(t => t.assetAccountId === id ? { ...t, assetAccountId: undefined } : t));
+  };
+
 
   const setCategoryBudget = (category: string, limit: number) => {
     setCategoryBudgets(prev => ({ ...prev, [category]: limit }));
@@ -171,6 +187,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const clearAll = () => {
     setTransactions([]);
     setDebts([]);
+    setAssets([]);
     setCategoryBudgets({});
   };
 
@@ -258,7 +275,6 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                   amount = debitVal;
                   type = 'expense';
                   if (category.toLowerCase().includes('loan') || category.toLowerCase().includes('debt')) {
-                    // Map to debt-payment by default for now
                     type = 'debt-payment';
                   }
                 }
@@ -325,6 +341,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         password: pw,
         transactions,
         debts,
+        assets, // Sync
         categoryBudgets
       };
       const res = await fetch('/api/sync', {
@@ -350,20 +367,19 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (!res.ok) throw new Error(await res.text());
 
       const data = await res.json();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      // We accept data even if just transactions exist
-      if (data.transactions || data.debts || data.categoryBudgets) {
-        if (confirm(`Overwrite local data with Cloud Data?`)) {
-          if (data.transactions) setTransactions(data.transactions);
-          if (data.debts) setDebts(data.debts);
-          if (data.categoryBudgets) setCategoryBudgets(data.categoryBudgets);
 
-          const newUser = { email, key: pw };
-          setUser(newUser);
-          localStorage.setItem('budget_user', JSON.stringify(newUser));
-          return true;
-        }
+      if (confirm(`Overwrite local data with Cloud Data? (Last Updated: ${data.lastUpdated})`)) {
+        if (data.transactions) setTransactions(data.transactions);
+        if (data.debts) setDebts(data.debts);
+        if (data.assets) setAssets(data.assets);
+        if (data.categoryBudgets) setCategoryBudgets(data.categoryBudgets);
+
+        const newUser = { email, key: pw };
+        setUser(newUser);
+        localStorage.setItem('budget_user', JSON.stringify(newUser));
+        return true;
       }
+
       return false;
     } catch (e) {
       alert("Load failed: " + e);
@@ -377,7 +393,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   return (
-    <BudgetContext.Provider value={{ transactions, debts, user, categoryBudgets, addTransaction, editTransaction, deleteTransaction, addDebt, editDebt, deleteDebt, setCategoryBudget, importCSV, clearAll, syncToCloud, loadFromCloud, logout, isSyncing }}>
+    <BudgetContext.Provider value={{ transactions, debts, assets, user, categoryBudgets, addTransaction, editTransaction, deleteTransaction, addDebt, editDebt, deleteDebt, addAsset, editAsset, deleteAsset, setCategoryBudget, importCSV, clearAll, syncToCloud, loadFromCloud, logout, isSyncing }}>
       {children}
     </BudgetContext.Provider>
   );

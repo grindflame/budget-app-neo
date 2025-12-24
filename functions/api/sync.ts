@@ -5,14 +5,14 @@ interface Env {
 }
 
 interface SyncData {
-    passwordHash: string; // Simple hash/token
+    passwordHash: string;
     transactions: any[];
-    debts?: any[];        // Added debts
-    categoryBudgets?: any; // Added budgets
+    debts?: any[];
+    assets?: any[]; // Added assets
+    categoryBudgets?: any;
     lastUpdated: string;
 }
 
-// Simple hash function for "auth" (Not secure for high-value targets, but good enough for simple key-value bucket protection)
 async function hashPassword(pw: string): Promise<string> {
     const msgBuffer = new TextEncoder().encode(pw);
     const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
@@ -24,9 +24,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     try {
         const { request, env } = context;
         const body: any = await request.json();
-        const { email, password, transactions, debts, categoryBudgets } = body;
+        const { email, password, transactions, debts, assets, categoryBudgets } = body;
 
-        // Validation - at least transactions must exist? Or loose?
         if (!email || !password) {
             return new Response("Missing fields", { status: 400 });
         }
@@ -34,7 +33,6 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const key = `user:${email}`;
         const newHash = await hashPassword(password);
 
-        // Check existing (optional: could just overwrite)
         const existing = await env.BUDGET_KV.get<SyncData>(key, "json");
         if (existing) {
             if (existing.passwordHash !== newHash) {
@@ -46,6 +44,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             passwordHash: newHash,
             transactions: transactions || [],
             debts: debts || [],
+            assets: assets || [],
             categoryBudgets: categoryBudgets || {},
             lastUpdated: new Date().toISOString()
         };
@@ -86,6 +85,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         return new Response(JSON.stringify({
             transactions: existing.transactions,
             debts: existing.debts || [],
+            assets: existing.assets || [], // Return assets
             categoryBudgets: existing.categoryBudgets || {},
             lastUpdated: existing.lastUpdated
         }), {

@@ -51,12 +51,15 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions }
 
     const startEdit = (t: Transaction) => {
         setEditingId(t.id);
+        const typ = t.type === 'debt' ? 'debt-payment' : t.type; // normalize legacy
         setEditForm({
             date: t.date,
             description: t.description,
             amount: t.amount,
-            type: t.type,
-            category: t.category
+            type: typ,
+            category: t.category,
+            debtAccountId: t.debtAccountId,
+            assetAccountId: t.assetAccountId
         });
     };
 
@@ -69,13 +72,32 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions }
         setEditingId(null);
     };
 
-    // Helper to format Date nicely
     const formatDate = (dateStr: string) => {
         try {
-            return format(parseISO(dateStr), 'MMM d, yyyy'); // e.g. Nov 23, 2025
+            return format(parseISO(dateStr), 'MMM d, yyyy');
         } catch (e) {
             return dateStr;
         }
+    };
+
+    const getTypeLabel = (t: TransactionType | 'debt') => {
+        if (t === 'income') return '+';
+        if (t === 'expense') return '-';
+        if (t === 'debt-payment' || t === 'debt') return 'DEBT PMT';
+        if (t === 'debt-interest') return 'DEBT INT';
+        if (t === 'asset-deposit') return 'SAVE';
+        if (t === 'asset-growth') return 'GROW';
+        return '';
+    };
+
+    const getTypeColor = (t: TransactionType | 'debt') => {
+        if (t === 'income') return 'var(--neo-green)';
+        if (t === 'expense') return 'black';
+        if (t === 'debt-payment' || t === 'debt') return 'var(--neo-pink)';
+        if (t === 'debt-interest') return '#888'; // Grey/Pink?
+        if (t === 'asset-deposit') return '#00F0FF'; // Cyan
+        if (t === 'asset-growth') return 'var(--neo-green)';
+        return 'black';
     };
 
     return (
@@ -120,7 +142,11 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions }
                                                 onChange={e => setEditForm({ ...editForm, description: e.target.value })}
                                             />
                                         ) : (
-                                            t.description
+                                            <div>
+                                                {t.description}
+                                                {t.debtAccountId && <span className="pill pink">Linked Debt</span>}
+                                                {t.assetAccountId && <span className="pill cyan">Linked Asset</span>}
+                                            </div>
                                         )}
                                     </td>
 
@@ -133,25 +159,29 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions }
                                                 onChange={e => setEditForm({ ...editForm, category: e.target.value })}
                                             >
                                                 {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                                <option value="Uncategorized">Uncategorized</option>
                                             </select>
                                         ) : (
                                             <span className="badge">{t.category}</span>
                                         )}
                                     </td>
 
-                                    {/* AMOUNT */}
+                                    {/* AMOUNT & TYPE */}
                                     <td style={{ textAlign: 'right' }}>
                                         {isEditing ? (
-                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '5px' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '5px' }}>
                                                 <select
                                                     className="edit-input"
-                                                    style={{ width: '40px', padding: '0 2px' }}
+                                                    style={{ width: '100px', padding: '0 2px', fontSize: '0.7rem' }}
                                                     value={editForm.type}
                                                     onChange={e => setEditForm({ ...editForm, type: e.target.value as TransactionType })}
                                                 >
-                                                    <option value="expense">-</option>
-                                                    <option value="income">+</option>
-                                                    <option value="debt">D</option>
+                                                    <option value="expense">EXPENSE</option>
+                                                    <option value="income">INCOME</option>
+                                                    <option value="debt-payment">DEBT PMT</option>
+                                                    <option value="debt-interest">DEBT INT</option>
+                                                    <option value="asset-deposit">ASSET DEPOSIT</option>
+                                                    <option value="asset-growth">ASSET GROWTH</option>
                                                 </select>
                                                 <input
                                                     className="edit-input"
@@ -162,15 +192,15 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions }
                                                 />
                                             </div>
                                         ) : (
-                                            <span style={{
-                                                color: t.type === 'income' ? 'var(--neo-green)' :
-                                                    t.type === 'debt' ? 'var(--neo-pink)' : 'black',
+                                            <div style={{
+                                                color: getTypeColor(t.type),
                                                 fontWeight: 900,
-                                                fontSize: '1.1rem'
+                                                fontSize: '1.1rem',
+                                                display: 'flex', flexDirection: 'column', alignItems: 'flex-end'
                                             }}>
-                                                {t.type === 'income' ? '+' : ''}{t.type === 'expense' ? '-' : ''}
-                                                ${t.amount.toFixed(2)}
-                                            </span>
+                                                <span>{t.type === 'expense' || t.type === 'debt-payment' || t.type === 'debt' || t.type === 'asset-deposit' ? '-' : '+'}${t.amount.toFixed(2)}</span>
+                                                <span style={{ fontSize: '0.6rem', opacity: 0.6 }}>{getTypeLabel(t.type)}</span>
+                                            </div>
                                         )}
                                     </td>
 
@@ -242,6 +272,17 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions }
           box-shadow: 2px 2px 0 black;
         }
         
+        .pill {
+            font-size: 0.65rem;
+            padding: 2px 6px;
+            border: 1px solid black;
+            margin-left: 6px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .pill.pink { background: var(--neo-pink); }
+        .pill.cyan { background: var(--neo-cyan); }
+
         .action-btn {
             background: none;
             border: 2px solid black;

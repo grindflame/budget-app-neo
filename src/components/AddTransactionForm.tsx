@@ -22,12 +22,13 @@ const CATEGORIES = [
 ];
 
 export const AddTransactionForm: React.FC = () => {
-    const { addTransaction, debts } = useBudget();
+    const { addTransaction, debts, assets } = useBudget();
     const [desc, setDesc] = useState('');
     const [amount, setAmount] = useState('');
     const [type, setType] = useState<TransactionType | 'debt'>('expense');
     const [category, setCategory] = useState(CATEGORIES[0]);
     const [selectedDebtId, setSelectedDebtId] = useState('');
+    const [selectedAssetId, setSelectedAssetId] = useState('');
     const [txDate, setTxDate] = useState(new Date().toISOString().split('T')[0]);
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -40,15 +41,20 @@ export const AddTransactionForm: React.FC = () => {
             type: type as TransactionType,
             category: category || 'Uncategorized',
             date: txDate,
-            debtAccountId: selectedDebtId || undefined
+            debtAccountId: selectedDebtId || undefined,
+            assetAccountId: selectedAssetId || undefined
         });
         setDesc('');
         setAmount('');
-        // No reset for category or date (often users add multiple for same day)
+        // Keep category and date
     };
 
     // Type selection logic
     const isDebtRelated = type === 'debt' || type === 'debt-payment' || type === 'debt-interest';
+    const isAssetRelated = type === 'asset-deposit' || type === 'asset-growth';
+
+    // Reset linked fields if type changes
+    // (Optional but good UX. for now simple)
 
     return (
         <div className="neo-box">
@@ -68,7 +74,7 @@ export const AddTransactionForm: React.FC = () => {
                     <label>DESCRIPTION</label>
                     <input
                         className="neo-input"
-                        placeholder="e.g. Tacos (yummy)"
+                        placeholder="e.g. Tacos (yummy) or 401k Contrib"
                         value={desc}
                         onChange={e => setDesc(e.target.value)}
                     />
@@ -91,13 +97,19 @@ export const AddTransactionForm: React.FC = () => {
                     <select
                         className="neo-input"
                         value={type}
-                        onChange={e => setType(e.target.value as TransactionType)}
+                        onChange={e => {
+                            setType(e.target.value as TransactionType);
+                            setSelectedDebtId('');
+                            setSelectedAssetId('');
+                        }}
                         style={{ cursor: 'pointer', appearance: 'none' }}
                     >
                         <option value="expense">EXPENSE</option>
                         <option value="income">INCOME</option>
-                        <option value="debt-payment">DEBT PAYMENT (Reduces Debt)</option>
-                        <option value="debt-interest">DEBT INTEREST (Increases Debt)</option>
+                        <option value="debt-payment">DEBT PAYMENT</option>
+                        <option value="debt-interest">DEBT INTEREST</option>
+                        <option value="asset-deposit">ASSET DEPOSIT (Savings)</option>
+                        <option value="asset-growth">ASSET GROWTH (Interest)</option>
                     </select>
                 </div>
 
@@ -113,6 +125,23 @@ export const AddTransactionForm: React.FC = () => {
                             <option value="">-- No Account / One-off --</option>
                             {debts.map(d => (
                                 <option key={d.id} value={d.id}>{d.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+
+                {isAssetRelated && (
+                    <div className="form-group">
+                        <label>LINK TO ASSET ACCOUNT</label>
+                        <select
+                            className="neo-input"
+                            style={{ border: '4px solid var(--neo-green)' }}
+                            value={selectedAssetId}
+                            onChange={e => setSelectedAssetId(e.target.value)}
+                        >
+                            <option value="">-- No Account --</option>
+                            {assets.map(a => (
+                                <option key={a.id} value={a.id}>{a.name}</option>
                             ))}
                         </select>
                     </div>
