@@ -1,5 +1,6 @@
 import React from 'react';
 import type { Transaction } from '../context/BudgetContext';
+import { DebtsManager } from './DebtsManager';
 
 interface SummaryCardsProps {
     transactions: Transaction[];
@@ -7,22 +8,19 @@ interface SummaryCardsProps {
 }
 
 export const SummaryCards: React.FC<SummaryCardsProps> = ({ transactions }) => {
-    // Filter for current month is done by parent presumably, but let's trust the prop passed `transactions` is what we want to sum?
-    // Wait, Dashboard passes `transactions.filter(...)`. Correct.
-
-    // We also want to show "Budget vs Actual" eventually? 
-    // The user requested extra features. Let's add a simple "Safety" metric or similar.
-    // Actually, let's keep this clean and just stick to the main request for now, or add a "Budget Health" card.
 
     const income = transactions.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
     const expense = transactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
-    const debt = transactions.filter(t => t.type === 'debt').reduce((acc, t) => acc + t.amount, 0);
+    // Include the new 'debt-payment' type in the monthly outgoing "Debt Pmts" sum
+    const debt = transactions.filter(t => t.type === 'debt' || t.type === 'debt-payment').reduce((acc, t) => acc + t.amount, 0);
+
     const profitLoss = income - expense - debt;
 
+    // Standard Monthly Cards
     const cards = [
         { label: 'INCOME', amount: income, color: 'var(--neo-green)' },
         { label: 'EXPENSES', amount: expense, color: 'var(--neo-yellow)' },
-        { label: 'DEBT PMTS', amount: debt, color: 'var(--neo-pink)' },
+        { label: 'DEBT PMTS', amount: debt, color: '#e0c3fc' }, // Light purple for monthly payments
         { label: 'PROFIT/LOSS', amount: profitLoss, color: profitLoss >= 0 ? 'var(--neo-cyan)' : '#ff6b6b' },
     ];
 
@@ -36,6 +34,9 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ transactions }) => {
                     </div>
                 </div>
             ))}
+
+            {/* The Total Outstanding Debt Card (Managed via Modal) */}
+            <DebtsManager />
 
             <style>{`
         .grid-responsive {

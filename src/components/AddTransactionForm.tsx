@@ -28,6 +28,7 @@ export const AddTransactionForm: React.FC = () => {
     const [type, setType] = useState<TransactionType | 'debt'>('expense');
     const [category, setCategory] = useState(CATEGORIES[0]);
     const [selectedDebtId, setSelectedDebtId] = useState('');
+    const [txDate, setTxDate] = useState(new Date().toISOString().split('T')[0]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -38,23 +39,31 @@ export const AddTransactionForm: React.FC = () => {
             amount: parseFloat(amount),
             type: type as TransactionType,
             category: category || 'Uncategorized',
-            date: new Date().toISOString().split('T')[0],
+            date: txDate,
             debtAccountId: selectedDebtId || undefined
         });
         setDesc('');
         setAmount('');
-        // No reset for category
+        // No reset for category or date (often users add multiple for same day)
     };
 
     // Type selection logic
-    // If user selects "DEBT PAYMENT", show Debt selector.
-    // If user selects "DEBT INTEREST", show Debt selector.
     const isDebtRelated = type === 'debt' || type === 'debt-payment' || type === 'debt-interest';
 
     return (
         <div className="neo-box">
             <h3 style={{ borderBottom: '4px solid black', paddingBottom: '0.5rem', marginBottom: '1.5rem' }}>Add New Entry</h3>
             <form onSubmit={handleSubmit} className="form-stack">
+                <div className="form-group">
+                    <label>DATE</label>
+                    <input
+                        className="neo-input"
+                        type="date"
+                        value={txDate}
+                        onChange={e => setTxDate(e.target.value)}
+                    />
+                </div>
+
                 <div className="form-group">
                     <label>DESCRIPTION</label>
                     <input

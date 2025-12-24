@@ -5,7 +5,6 @@ import { SummaryCards } from './components/SummaryCards';
 import { AddTransactionForm } from './components/AddTransactionForm';
 import { BudgetCharts } from './components/BudgetCharts';
 import { TransactionList } from './components/TransactionList';
-import { DebtsManager } from './components/DebtsManager';
 import { Upload, Download, Trash, ChevronLeft, ChevronRight, Wallet, Cloud, X, LogOut, RefreshCw } from 'lucide-react';
 import { format, addMonths, subMonths, parseISO } from 'date-fns';
 
@@ -181,10 +180,8 @@ const Dashboard: React.FC = () => {
         </button>
       </div>
 
+      {/* SUMMARY CARDS (Now includes Total Debts Button) */}
       <SummaryCards transactions={transactions} currentMonth={currentMonth} />
-
-      {/* DEBTS MANAGER SECTION */}
-      <DebtsManager />
 
       <BudgetCharts transactions={transactions} currentMonth={currentMonth} />
 
