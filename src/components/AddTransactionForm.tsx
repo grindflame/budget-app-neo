@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useBudget } from '../context/BudgetContext';
 import type { TransactionType } from '../context/BudgetContext';
-import { Plus } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 
 export const AddTransactionForm: React.FC = () => {
     const { addTransaction } = useBudget();
@@ -26,48 +26,70 @@ export const AddTransactionForm: React.FC = () => {
     };
 
     return (
-        <div className="neo-box" style={{ marginBottom: '2rem' }}>
-            <h3>Add New Entry</h3>
-            <form onSubmit={handleSubmit} className="form-grid">
-                <input
-                    className="neo-input"
-                    placeholder="Description"
-                    value={desc}
-                    onChange={e => setDesc(e.target.value)}
-                />
-                <input
-                    className="neo-input"
-                    type="number"
-                    placeholder="Amount"
-                    value={amount}
-                    onChange={e => setAmount(e.target.value)}
-                />
-                <select
-                    className="neo-input"
-                    value={type}
-                    onChange={e => setType(e.target.value as TransactionType)}
-                >
-                    <option value="income">Income</option>
-                    <option value="expense">Expense</option>
-                    <option value="debt">Debt Payment</option>
-                </select>
-                <input
-                    className="neo-input"
-                    placeholder="Category (e.g. Food)"
-                    value={category}
-                    onChange={e => setCategory(e.target.value)}
-                />
+        <div className="neo-box">
+            <h3 style={{ borderBottom: '4px solid black', paddingBottom: '0.5rem', marginBottom: '1.5rem' }}>Add New Entry</h3>
+            <form onSubmit={handleSubmit} className="form-stack">
+                <div className="form-group">
+                    <label>DESCRIPTION</label>
+                    <input
+                        className="neo-input"
+                        placeholder="e.g. Tacos"
+                        value={desc}
+                        onChange={e => setDesc(e.target.value)}
+                    />
+                </div>
 
-                <button type="submit" className="neo-btn" style={{ justifyContent: 'center' }}>
-                    <Plus size={20} /> Add
+                <div className="form-group">
+                    <label>AMOUNT</label>
+                    <input
+                        className="neo-input"
+                        type="number"
+                        step="0.01"
+                        placeholder="0.00"
+                        value={amount}
+                        onChange={e => setAmount(e.target.value)}
+                    />
+                </div>
+
+                <div className="form-group">
+                    <label>TYPE</label>
+                    <select
+                        className="neo-input"
+                        value={type}
+                        onChange={e => setType(e.target.value as TransactionType)}
+                        style={{ cursor: 'pointer', appearance: 'none' }}
+                    >
+                        <option value="expense">EXPENSE</option>
+                        <option value="income">INCOME</option>
+                        <option value="debt">DEBT PAYMENT</option>
+                    </select>
+                </div>
+
+                <div className="form-group">
+                    <label>CATEGORY</label>
+                    <input
+                        className="neo-input"
+                        placeholder="e.g. Food"
+                        value={category}
+                        onChange={e => setCategory(e.target.value)}
+                    />
+                </div>
+
+                <button type="submit" className="neo-btn yellow" style={{ justifyContent: 'center', width: '100%', marginTop: '1rem' }}>
+                    ADD ENTRY <ArrowRight size={20} strokeWidth={3} />
                 </button>
             </form>
             <style>{`
-        .form-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-          gap: 1rem;
-          align-items: center;
+        .form-stack {
+          display: flex;
+          flex-direction: column;
+          gap: 1.25rem;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 900;
+            font-size: 0.9rem;
         }
       `}</style>
         </div>

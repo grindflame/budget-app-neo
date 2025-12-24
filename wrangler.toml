@@ -1,0 +1,7 @@
+[site]
+bucket = "./dist"
+
+[[kv_namespaces]]
+binding = "BUDGET_KV"
+id = "1fe0d7d49247405abdaa08a5286bca7d"
+preview_id = "1fe0d7d49247405abdaa08a5286bca7d" # Using same for preview since it's just a demo

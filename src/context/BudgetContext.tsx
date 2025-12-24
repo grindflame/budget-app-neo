@@ -18,6 +18,8 @@ interface BudgetContextType {
   deleteTransaction: (id: string) => void;
   importCSV: (file: File) => Promise<void>;
   clearAll: () => void;
+  syncToCloud: (email: string, pw: string) => Promise<boolean>;
+  loadFromCloud: (email: string, pw: string) => Promise<boolean>;
 }
 
 const BudgetContext = createContext<BudgetContextType | undefined>(undefined);
@@ -58,8 +60,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         skipEmptyLines: true,
         complete: (results) => {
           try {
-            // Assume CSV headers: Date, Description, Amount, Type, Category
-            // or try to map loosely
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const parsed: Transaction[] = results.data.map((row: any) => ({
               id: crypto.randomUUID(),
               date: row.Date || new Date().toISOString().split('T')[0],
@@ -68,7 +69,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               type: (row.Type?.toLowerCase() as TransactionType) || 'expense',
               category: row.Category || 'Uncategorized'
             }));
-            
+
             setTransactions(prev => [...prev, ...parsed]);
             resolve();
           } catch (e) {
@@ -77,14 +78,49 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           }
         },
         error: (error) => {
-            reject(error);
+          reject(error);
         }
       });
     });
   };
 
+  const syncToCloud = async (email: string, pw: string): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password: pw, transactions })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return true;
+    } catch (e) {
+      alert("Sync failed: " + e);
+      return false;
+    }
+  };
+
+  const loadFromCloud = async (email: string, pw: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`/api/sync?email=${encodeURIComponent(email)}&password=${encodeURIComponent(pw)}`);
+      if (!res.ok) throw new Error(await res.text());
+
+      const data = await res.json();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (data.transactions && Array.isArray(data.transactions)) {
+        if (confirm(`Overwrite local data with ${data.transactions.length} transactions from cloud (Last Updated: ${data.lastUpdated})?`)) {
+          setTransactions(data.transactions);
+          return true;
+        }
+      }
+      return false;
+    } catch (e) {
+      alert("Load failed: " + e);
+      return false;
+    }
+  };
+
   return (
-    <BudgetContext.Provider value={{ transactions, addTransaction, deleteTransaction, importCSV, clearAll }}>
+    <BudgetContext.Provider value={{ transactions, addTransaction, deleteTransaction, importCSV, clearAll, syncToCloud, loadFromCloud }}>
       {children}
     </BudgetContext.Provider>
   );
