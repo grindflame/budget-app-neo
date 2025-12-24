@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Papa from 'papaparse';
 import { BudgetProvider, useBudget } from './context/BudgetContext';
 import { SummaryCards } from './components/SummaryCards';
@@ -75,7 +75,7 @@ const SyncModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 };
 
 const Dashboard: React.FC = () => {
-  const { transactions, importCSV, clearAll, user, logout, isSyncing } = useBudget();
+  const { transactions, importCSV, clearAll, user, logout, isSyncing, generateRecurringForMonth } = useBudget();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showSync, setShowSync] = useState(false);
 
@@ -83,6 +83,11 @@ const Dashboard: React.FC = () => {
   const [currentMonth, setCurrentMonth] = useState(() => {
     return new Date().toISOString().slice(0, 7);
   });
+
+  // Auto-generate any recurring entries for the month being viewed
+  useEffect(() => {
+    generateRecurringForMonth(currentMonth);
+  }, [currentMonth, generateRecurringForMonth]);
 
   const handleMonthChange = (direction: 'prev' | 'next') => {
     const date = parseISO(currentMonth + '-01');

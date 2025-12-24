@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import Papa from 'papaparse';
 
@@ -12,6 +13,7 @@ export interface Transaction {
   category: string;
   debtAccountId?: string;
   assetAccountId?: string; // Link to Asset
+  recurringId?: string; // If generated from a recurring rule
 }
 
 export interface DebtAccount {
@@ -24,6 +26,19 @@ export interface AssetAccount {
   id: string;
   name: string;
   startingBalance: number;
+}
+
+export interface RecurringRule {
+  id: string;
+  enabled: boolean;
+  description: string;
+  amount: number;
+  type: TransactionType;
+  category: string;
+  dayOfMonth: number; // 1-31
+  startMonth: string; // YYYY-MM (inclusive)
+  debtAccountId?: string;
+  assetAccountId?: string;
 }
 
 interface User {
@@ -40,6 +55,7 @@ interface BudgetContextType {
   transactions: Transaction[];
   debts: DebtAccount[];
   assets: AssetAccount[]; // New
+  recurring: RecurringRule[];
   user: User | null;
   categoryBudgets: Record<string, number>;
 
@@ -54,6 +70,12 @@ interface BudgetContextType {
   addAsset: (a: Omit<AssetAccount, 'id'>) => void; // New
   editAsset: (id: string, updated: Omit<AssetAccount, 'id'>) => void; // New
   deleteAsset: (id: string) => void; // New
+
+  addRecurring: (r: Omit<RecurringRule, 'id'>) => void;
+  editRecurring: (id: string, updated: Omit<RecurringRule, 'id'>) => void;
+  deleteRecurring: (id: string) => void;
+  toggleRecurring: (id: string, enabled: boolean) => void;
+  generateRecurringForMonth: (yyyyMM: string) => void;
 
   setCategoryBudget: (category: string, limit: number) => void;
   importCSV: (file: File) => Promise<void>;
@@ -95,6 +117,11 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return saved ? JSON.parse(saved) : [];
   });
 
+  const [recurring, setRecurring] = useState<RecurringRule[]>(() => {
+    const saved = localStorage.getItem('budget_recurring');
+    return saved ? JSON.parse(saved) : [];
+  });
+
   const [user, setUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('budget_user');
     return saved ? JSON.parse(saved) : null;
@@ -108,6 +135,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     localStorage.setItem('budget_debts', JSON.stringify(debts));
     localStorage.setItem('budget_assets', JSON.stringify(assets));
     localStorage.setItem('budget_limits', JSON.stringify(categoryBudgets));
+    localStorage.setItem('budget_recurring', JSON.stringify(recurring));
 
     // Auto-sync logic
     if (user) {
@@ -122,7 +150,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             transactions,
             debts,
             assets, // Sync assets
-            categoryBudgets
+            categoryBudgets,
+            recurring
           };
 
           const res = await fetch('/api/sync', {
@@ -138,7 +167,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
       }, 2000);
     }
-  }, [transactions, user, debts, assets, categoryBudgets]);
+  }, [transactions, user, debts, assets, categoryBudgets, recurring]);
 
   const addTransaction = (t: Omit<Transaction, 'id'>) => {
     const newTransaction = { ...t, id: crypto.randomUUID() };
@@ -164,6 +193,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const deleteDebt = (id: string) => {
     setDebts(prev => prev.filter(d => d.id !== id));
     setTransactions(prev => prev.map(t => t.debtAccountId === id ? { ...t, debtAccountId: undefined } : t));
+    setRecurring(prev => prev.map(r => r.debtAccountId === id ? { ...r, debtAccountId: undefined } : r));
   };
 
   const addAsset = (a: Omit<AssetAccount, 'id'>) => {
@@ -177,6 +207,63 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const deleteAsset = (id: string) => {
     setAssets(prev => prev.filter(a => a.id !== id));
     setTransactions(prev => prev.map(t => t.assetAccountId === id ? { ...t, assetAccountId: undefined } : t));
+    setRecurring(prev => prev.map(r => r.assetAccountId === id ? { ...r, assetAccountId: undefined } : r));
+  };
+
+  const addRecurring = (r: Omit<RecurringRule, 'id'>) => {
+    setRecurring(prev => [...prev, { ...r, id: crypto.randomUUID() }]);
+  };
+
+  const editRecurring = (id: string, updated: Omit<RecurringRule, 'id'>) => {
+    setRecurring(prev => prev.map(r => r.id === id ? { ...updated, id } : r));
+  };
+
+  const deleteRecurring = (id: string) => {
+    setRecurring(prev => prev.filter(r => r.id !== id));
+  };
+
+  const toggleRecurring = (id: string, enabled: boolean) => {
+    setRecurring(prev => prev.map(r => r.id === id ? { ...r, enabled } : r));
+  };
+
+  const generateRecurringForMonth = (yyyyMM: string) => {
+    // Ensure we only generate once per recurring rule per month
+    const [yStr, mStr] = yyyyMM.split('-');
+    const year = Number(yStr);
+    const monthIndex = Number(mStr) - 1;
+    if (!Number.isFinite(year) || !Number.isFinite(monthIndex) || monthIndex < 0 || monthIndex > 11) return;
+
+    const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+
+    setTransactions(prev => {
+      const alreadyExists = (ruleId: string) =>
+        prev.some(t => t.recurringId === ruleId && t.date.startsWith(yyyyMM));
+
+      const toAdd: Transaction[] = [];
+      for (const rule of recurring) {
+        if (!rule.enabled) continue;
+        if (rule.startMonth && yyyyMM < rule.startMonth) continue;
+        if (alreadyExists(rule.id)) continue;
+
+        const day = Math.min(Math.max(1, rule.dayOfMonth), daysInMonth);
+        const date = `${yyyyMM}-${String(day).padStart(2, '0')}`;
+
+        toAdd.push({
+          id: crypto.randomUUID(),
+          date,
+          description: rule.description,
+          amount: rule.amount,
+          type: rule.type,
+          category: rule.category || 'Uncategorized',
+          debtAccountId: rule.debtAccountId,
+          assetAccountId: rule.assetAccountId,
+          recurringId: rule.id
+        });
+      }
+
+      if (toAdd.length === 0) return prev;
+      return [...prev, ...toAdd];
+    });
   };
 
 
@@ -189,6 +276,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setDebts([]);
     setAssets([]);
     setCategoryBudgets({});
+    setRecurring([]);
   };
 
   const importCSV = (file: File): Promise<void> => {
@@ -342,7 +430,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         transactions,
         debts,
         assets, // Sync
-        categoryBudgets
+        categoryBudgets,
+        recurring
       };
       const res = await fetch('/api/sync', {
         method: 'POST',
@@ -373,6 +462,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (data.debts) setDebts(data.debts);
         if (data.assets) setAssets(data.assets);
         if (data.categoryBudgets) setCategoryBudgets(data.categoryBudgets);
+        if (data.recurring) setRecurring(data.recurring);
 
         const newUser = { email, key: pw };
         setUser(newUser);
@@ -393,7 +483,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   return (
-    <BudgetContext.Provider value={{ transactions, debts, assets, user, categoryBudgets, addTransaction, editTransaction, deleteTransaction, addDebt, editDebt, deleteDebt, addAsset, editAsset, deleteAsset, setCategoryBudget, importCSV, clearAll, syncToCloud, loadFromCloud, logout, isSyncing }}>
+    <BudgetContext.Provider value={{ transactions, debts, assets, recurring, user, categoryBudgets, addTransaction, editTransaction, deleteTransaction, addDebt, editDebt, deleteDebt, addAsset, editAsset, deleteAsset, addRecurring, editRecurring, deleteRecurring, toggleRecurring, generateRecurringForMonth, setCategoryBudget, importCSV, clearAll, syncToCloud, loadFromCloud, logout, isSyncing }}>
       {children}
     </BudgetContext.Provider>
   );

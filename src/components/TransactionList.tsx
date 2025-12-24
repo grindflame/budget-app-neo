@@ -35,7 +35,8 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions }
         description: '',
         amount: 0,
         type: 'expense',
-        category: ''
+        category: '',
+        recurringId: undefined
     });
 
     if (transactions.length === 0) {
@@ -59,7 +60,8 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions }
             type: typ,
             category: t.category,
             debtAccountId: t.debtAccountId,
-            assetAccountId: t.assetAccountId
+            assetAccountId: t.assetAccountId,
+            recurringId: t.recurringId
         });
     };
 
@@ -75,7 +77,7 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions }
     const formatDate = (dateStr: string) => {
         try {
             return format(parseISO(dateStr), 'MMM d, yyyy');
-        } catch (e) {
+        } catch {
             return dateStr;
         }
     };

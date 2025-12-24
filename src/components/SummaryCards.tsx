@@ -1,38 +1,77 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import type { Transaction } from '../context/BudgetContext';
+import { useBudget } from '../context/BudgetContext';
 import { DebtsManager } from './DebtsManager';
 import { AssetsManager } from './AssetsManager';
+import { RecurringManager } from './RecurringManager';
 
 interface SummaryCardsProps {
     transactions: Transaction[];
     currentMonth: string; // YYYY-MM
 }
 
-export const SummaryCards: React.FC<SummaryCardsProps> = ({ transactions }) => {
+export const SummaryCards: React.FC<SummaryCardsProps> = ({ transactions, currentMonth }) => {
+    const { categoryBudgets } = useBudget();
 
-    // CASHFLOW LOGIC
-    const income = transactions.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
+    const monthTx = useMemo(() => {
+        return transactions.filter(t => t.date.startsWith(currentMonth));
+    }, [transactions, currentMonth]);
 
-    // Expenses (Standard)
-    const expense = transactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
+    const cashflow = useMemo(() => {
+        const income = monthTx.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
 
-    // Debt Payments (Outflow)
-    const debt = transactions.filter(t => t.type === 'debt' || t.type === 'debt-payment').reduce((acc, t) => acc + t.amount, 0);
+        // Expenses (Standard)
+        const expense = monthTx.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
 
-    // Savings / Asset Deposits (Outflow from Cash, Inflow to Net Worth)
-    const savings = transactions.filter(t => t.type === 'asset-deposit').reduce((acc, t) => acc + t.amount, 0);
+        // Debt Payments (Outflow)
+        const debtPayments = monthTx
+            .filter(t => t.type === 'debt' || t.type === 'debt-payment')
+            .reduce((acc, t) => acc + t.amount, 0);
 
-    // Profit/Loss = Income - (Expenses + Debt + Savings)
-    // This represents "Unallocated Cash" remaining.
-    const unallocated = income - (expense + debt + savings);
+        // Savings / Asset Deposits (Outflow from Cash, Inflow to Net Worth)
+        const savings = monthTx
+            .filter(t => t.type === 'asset-deposit')
+            .reduce((acc, t) => acc + t.amount, 0);
+
+        // "Cash Left" = Income - (Expenses + Debt Payments + Savings Transfers)
+        const cashLeft = income - (expense + debtPayments + savings);
+
+        // Rates (avoid division by 0)
+        const savingsRate = income > 0 ? savings / income : 0;
+        const debtPayoffRate = income > 0 ? debtPayments / income : 0;
+
+        return { income, expense, debtPayments, savings, cashLeft, savingsRate, debtPayoffRate };
+    }, [monthTx]);
+
+    const budgetHealth = useMemo(() => {
+        // Only compare "expense" types to category budgets (keeps it intuitive)
+        const spendByCategory: Record<string, number> = {};
+        monthTx
+            .filter(t => t.type === 'expense')
+            .forEach(t => {
+                spendByCategory[t.category] = (spendByCategory[t.category] || 0) + t.amount;
+            });
+
+        const overspent = Object.entries(spendByCategory)
+            .map(([category, actual]) => {
+                const budget = categoryBudgets[category] ?? 0;
+                const overBy = budget > 0 ? actual - budget : 0;
+                return { category, actual, budget, overBy };
+            })
+            .filter(x => x.overBy > 0)
+            .sort((a, b) => b.overBy - a.overBy)
+            .slice(0, 3);
+
+        return { overspent };
+    }, [monthTx, categoryBudgets]);
 
     // Standard Monthly Cards
     const cards = [
-        { label: 'INCOME', amount: income, color: 'var(--neo-green)' },
-        { label: 'EXPENSES', amount: expense, color: 'var(--neo-yellow)' },
-        { label: 'DEBT PMTS', amount: debt, color: '#e0c3fc' }, // Liht purple
-        { label: 'SAVINGS', amount: savings, color: '#9bf6ff' }, // Light cyan
-        { label: 'REMAINING', amount: unallocated, color: unallocated >= 0 ? 'white' : '#ff6b6b' },
+        { label: 'INCOME', amount: cashflow.income, color: 'var(--neo-green)' },
+        { label: 'EXPENSES', amount: cashflow.expense, color: 'var(--neo-yellow)' },
+        { label: 'DEBT PMTS', amount: cashflow.debtPayments, color: '#e0c3fc' }, // Light purple
+        { label: 'SAVINGS', amount: cashflow.savings, color: '#9bf6ff' }, // Light cyan
+        { label: 'CASH LEFT', amount: cashflow.cashLeft, color: cashflow.cashLeft >= 0 ? 'white' : '#ff6b6b' },
     ];
 
     return (
@@ -44,8 +83,60 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ transactions }) => {
                         <div className="amount" style={{ fontSize: '2rem' }}>
                             ${card.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
+                        {card.label === 'CASH LEFT' && cashflow.cashLeft < 0 && (
+                            <div style={{ marginTop: '0.5rem', fontWeight: 900, fontSize: '0.8rem' }}>
+                                OVERSPENT BY ${Math.abs(cashflow.cashLeft).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
+                        )}
                     </div>
                 ))}
+            </div>
+
+            {/* Budget Health */}
+            <div className="neo-box" style={{ background: 'white' }}>
+                <h3 style={{ marginBottom: '1rem', borderBottom: '4px solid black', paddingBottom: '0.5rem' }}>BUDGET HEALTH (THIS MONTH)</h3>
+
+                <div className="health-grid">
+                    <div className="health-stat">
+                        <div className="health-label">SAVINGS RATE</div>
+                        <div className="health-value">
+                            {(cashflow.savingsRate * 100).toFixed(1)}%
+                        </div>
+                    </div>
+                    <div className="health-stat">
+                        <div className="health-label">DEBT PAYOFF RATE</div>
+                        <div className="health-value">
+                            {(cashflow.debtPayoffRate * 100).toFixed(1)}%
+                        </div>
+                    </div>
+                    <div className="health-stat" style={{ borderColor: cashflow.cashLeft >= 0 ? 'black' : 'red' }}>
+                        <div className="health-label">STATUS</div>
+                        <div className="health-value" style={{ color: cashflow.cashLeft >= 0 ? 'black' : 'red' }}>
+                            {cashflow.cashLeft >= 0 ? 'ON TRACK' : 'OVERSPENT'}
+                        </div>
+                    </div>
+                </div>
+
+                <div style={{ marginTop: '1.25rem' }}>
+                    <div style={{ fontWeight: 900, marginBottom: '0.5rem' }}>TOP OVERSPENT CATEGORIES</div>
+                    {budgetHealth.overspent.length === 0 ? (
+                        <div style={{ opacity: 0.7, fontWeight: 700 }}>No overspent categories with targets set.</div>
+                    ) : (
+                        <div className="overspent-list">
+                            {budgetHealth.overspent.map((o) => (
+                                <div key={o.category} className="overspent-row">
+                                    <div style={{ fontWeight: 900 }}>{o.category}</div>
+                                    <div style={{ textAlign: 'right', fontWeight: 900 }}>
+                                        +${o.overBy.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        <span style={{ fontWeight: 700, opacity: 0.7 }}>
+                                            {' '}({o.actual.toFixed(0)} / {o.budget.toFixed(0)})
+                                        </span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
             </div>
 
             <div className="managers-grid">
@@ -53,6 +144,8 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ transactions }) => {
                 <DebtsManager />
                 {/* The Total Assets Card (Managed via Modal) */}
                 <AssetsManager />
+                {/* Recurring Rules */}
+                <RecurringManager currentMonth={currentMonth} />
             </div>
 
             <style>{`
@@ -71,6 +164,41 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ transactions }) => {
              display: grid;
              grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
              gap: 1.5rem;
+        }
+        .health-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+          gap: 1rem;
+        }
+        .health-stat {
+          border: 3px solid black;
+          box-shadow: 4px 4px 0 black;
+          padding: 1rem;
+          background: #f9f9f9;
+        }
+        .health-label {
+          font-weight: 900;
+          font-size: 0.8rem;
+          opacity: 0.8;
+          margin-bottom: 0.25rem;
+        }
+        .health-value {
+          font-weight: 900;
+          font-size: 1.6rem;
+          letter-spacing: -1px;
+        }
+        .overspent-list {
+          display: grid;
+          gap: 0.5rem;
+        }
+        .overspent-row {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 0.75rem;
+          border: 2px solid black;
+          box-shadow: 2px 2px 0 black;
+          padding: 0.75rem;
+          background: #fff;
         }
         .amount {
           font-weight: 900;
