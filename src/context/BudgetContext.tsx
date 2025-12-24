@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import Papa from 'papaparse';
 
 export type TransactionType = 'income' | 'expense' | 'debt';
@@ -12,14 +12,22 @@ export interface Transaction {
   category: string;
 }
 
+interface User {
+  email: string;
+  key: string;
+}
+
 interface BudgetContextType {
   transactions: Transaction[];
+  user: User | null;
   addTransaction: (t: Omit<Transaction, 'id'>) => void;
   deleteTransaction: (id: string) => void;
   importCSV: (file: File) => Promise<void>;
   clearAll: () => void;
   syncToCloud: (email: string, pw: string) => Promise<boolean>;
   loadFromCloud: (email: string, pw: string) => Promise<boolean>;
+  logout: () => void;
+  isSyncing: boolean;
 }
 
 const BudgetContext = createContext<BudgetContextType | undefined>(undefined);
@@ -38,9 +46,41 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return saved ? JSON.parse(saved) : [];
   });
 
+  const [user, setUser] = useState<User | null>(() => {
+    const saved = localStorage.getItem('budget_user');
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  const [isSyncing, setIsSyncing] = useState(false);
+  const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     localStorage.setItem('budget_transactions', JSON.stringify(transactions));
-  }, [transactions]);
+
+    // Auto-sync logic
+    if (user) {
+      if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+
+      setIsSyncing(true);
+      syncTimeoutRef.current = setTimeout(async () => {
+        try {
+          // Call backend directly internal logic style, or reuse syncToCloud
+          // Reuse syncToCloud but suppress alerts for auto-sync usually
+          // Here we essentially re-implement a quiet sync
+          const res = await fetch('/api/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: user.email, password: user.key, transactions })
+          });
+          if (!res.ok) console.error("Auto-sync failed", await res.text());
+        } catch (e) {
+          console.error("Auto-sync error", e);
+        } finally {
+          setIsSyncing(false);
+        }
+      }, 2000); // 2 second debounce
+    }
+  }, [transactions, user]);
 
   const addTransaction = (t: Omit<Transaction, 'id'>) => {
     const newTransaction = { ...t, id: crypto.randomUUID() };
@@ -55,13 +95,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const importCSV = (file: File): Promise<void> => {
     return new Promise((resolve, reject) => {
-      // First, we need to check if it's the specific "Quick Fix" format or a generic one.
-      // The Quick Fix format has headers on line 1: ,Date of Transaction,Description,Category,Income,Debits,Balance...
-      // but "Date of Transaction" is column 2 (index 1).
-      // Standard PapaParse with header:true might fail if the first column is empty or header is offset.
-
       Papa.parse(file, {
-        header: false, // Parse as array of arrays first to inspect structure
+        header: false,
         skipEmptyLines: true,
         complete: (results) => {
           try {
@@ -72,27 +107,21 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             }
 
             const parsed: Transaction[] = [];
-            // Check for "Quick Fix" format
-            // Look for a row that contains "Date of Transaction"
             const headerRowIndex = rows.findIndex(r => r.includes("Date of Transaction"));
 
             if (headerRowIndex !== -1) {
-              // Quick Fix Format
               const header = rows[headerRowIndex];
               const dateIdx = header.indexOf("Date of Transaction");
               const descIdx = header.indexOf("Description");
-              const catIdx = header.indexOf("Category"); // Note: In CSV it looks like "Category"
+              const catIdx = header.indexOf("Category");
               const incomeIdx = header.findIndex(h => h.trim() === "Income");
               const debitIdx = header.findIndex(h => h.trim() === "Debits");
 
-              // Iterate rows after header
               for (let i = headerRowIndex + 1; i < rows.length; i++) {
                 const row = rows[i];
-                // Must have a date
                 if (!row[dateIdx]) continue;
 
                 const dateStr = row[dateIdx];
-                // Parse Date: 11/1/2025 or 11/1 (assume current year if missing)
                 let finalDate = new Date().toISOString().split('T')[0];
                 try {
                   const parts = dateStr.split('/');
@@ -108,13 +137,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
                 const desc = row[descIdx];
                 let category = row[catIdx];
-                // Clean category if needed
                 if (!category) category = 'Uncategorized';
 
-                // Normalize category to match our dropdown (optional but good)
-                // (We leave it as is to respect imported data, user can categorize later if needed)
-
-                // Determine Amount and Type
                 let amount = 0;
                 let type: TransactionType = 'expense';
 
@@ -127,7 +151,6 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                 } else if (debitVal > 0) {
                   amount = debitVal;
                   type = 'expense';
-                  // Heuristic for Debt based on keywords? Or just expense default
                   if (category.toLowerCase().includes('loan') || category.toLowerCase().includes('debt')) {
                     type = 'debt';
                   }
@@ -146,11 +169,6 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               }
 
             } else {
-              // FALLBACK: Standard Header Parsing attempt
-              // Assume headers: Date, Description, Amount, Type, Category
-              // We'll re-parse with header: true or just Map strictly
-              // For now, let's just try to map commonly known columns from the array
-              // If it was standard, row 0 is header
               const header = rows[0].map(h => h.toLowerCase());
               const dIdx = header.findIndex(h => h.includes('date'));
               const descIdx = header.findIndex(h => h.includes('desc'));
@@ -197,6 +215,11 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         body: JSON.stringify({ email, password: pw, transactions })
       });
       if (!res.ok) throw new Error(await res.text());
+
+      // Save user session on success
+      const newUser = { email, key: pw };
+      setUser(newUser);
+      localStorage.setItem('budget_user', JSON.stringify(newUser));
       return true;
     } catch (e) {
       alert("Sync failed: " + e);
@@ -214,6 +237,11 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (data.transactions && Array.isArray(data.transactions)) {
         if (confirm(`Overwrite local data with ${data.transactions.length} transactions from cloud (Last Updated: ${data.lastUpdated})?`)) {
           setTransactions(data.transactions);
+
+          // Save user session on success
+          const newUser = { email, key: pw };
+          setUser(newUser);
+          localStorage.setItem('budget_user', JSON.stringify(newUser));
           return true;
         }
       }
@@ -224,8 +252,13 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
+  const logout = () => {
+    setUser(null);
+    localStorage.removeItem('budget_user');
+  };
+
   return (
-    <BudgetContext.Provider value={{ transactions, addTransaction, deleteTransaction, importCSV, clearAll, syncToCloud, loadFromCloud }}>
+    <BudgetContext.Provider value={{ transactions, user, addTransaction, deleteTransaction, importCSV, clearAll, syncToCloud, loadFromCloud, logout, isSyncing }}>
       {children}
     </BudgetContext.Provider>
   );

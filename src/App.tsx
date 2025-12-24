@@ -5,7 +5,7 @@ import { SummaryCards } from './components/SummaryCards';
 import { AddTransactionForm } from './components/AddTransactionForm';
 import { BudgetCharts } from './components/BudgetCharts';
 import { TransactionList } from './components/TransactionList';
-import { Upload, Download, Trash, ChevronLeft, ChevronRight, Wallet, Cloud, X } from 'lucide-react';
+import { Upload, Download, Trash, ChevronLeft, ChevronRight, Wallet, Cloud, X, LogOut, RefreshCw } from 'lucide-react';
 import { format, addMonths, subMonths, parseISO } from 'date-fns';
 
 const SyncModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
@@ -19,15 +19,18 @@ const SyncModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     setLoading(true);
     const success = await syncToCloud(email, pw);
     setLoading(false);
-    if (success) alert("Data Synced to Cloud Successfully!");
+    if (success) {
+      alert("Logged in & Data Synced!");
+      onClose();
+    }
   };
 
   const handleLoad = async () => {
     if (!email || !pw) return;
     setLoading(true);
-    await loadFromCloud(email, pw);
+    const success = await loadFromCloud(email, pw);
     setLoading(false);
-    onClose();
+    if (success) onClose();
   };
 
   return (
@@ -37,10 +40,10 @@ const SyncModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     }}>
       <div className="neo-box" style={{ width: '90%', maxWidth: '400px', background: 'var(--neo-white)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
-          <h3>CLOUD VAULT</h3>
+          <h3>CLOUD VAULT LOGIN</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={24} /></button>
         </div>
-        <p style={{ marginBottom: '1.5rem', fontWeight: 'bold' }}>Enter credentials to Save or Load your budget.</p>
+        <p style={{ marginBottom: '1.5rem', fontWeight: 'bold' }}>To enable Auto-Sync, please log in with your credentials.</p>
 
         <input
           className="neo-input"
@@ -60,10 +63,10 @@ const SyncModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
         <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: '1fr 1fr' }}>
           <button className="neo-btn" disabled={loading} onClick={handleLoad}>
-            {loading ? '...' : 'LOAD'}
+            {loading ? '...' : 'LOAD & LOGIN'}
           </button>
           <button className="neo-btn pink" disabled={loading} onClick={handleSync}>
-            {loading ? '...' : 'SAVE'}
+            {loading ? '...' : 'SAVE & LOGIN'}
           </button>
         </div>
       </div>
@@ -72,7 +75,7 @@ const SyncModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 };
 
 const Dashboard: React.FC = () => {
-  const { transactions, importCSV, clearAll } = useBudget();
+  const { transactions, importCSV, clearAll, user, logout, isSyncing } = useBudget();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showSync, setShowSync] = useState(false);
 
@@ -123,9 +126,31 @@ const Dashboard: React.FC = () => {
         </div>
 
         <div className="actions-section">
-          <button className="neo-btn" onClick={() => setShowSync(true)} style={{ background: '#00F0FF' }}>
-            <Cloud size={20} strokeWidth={3} /> CLOUD SYNC
-          </button>
+          {user ? (
+            <>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '1rem',
+                fontWeight: 900,
+                marginRight: '1rem',
+                background: 'white',
+                border: '3px solid black',
+                padding: '0.5rem 1rem',
+                boxShadow: '4px 4px 0 black'
+              }}>
+                <span>{user.email}</span>
+                <button onClick={logout} className="neo-btn" style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem', background: '#eee' }} title="Logout">
+                  <LogOut size={16} />
+                </button>
+                {isSyncing && <RefreshCw size={16} className="spin" />}
+              </div>
+            </>
+          ) : (
+            <button className="neo-btn" onClick={() => setShowSync(true)} style={{ background: '#00F0FF' }}>
+              <Cloud size={20} strokeWidth={3} /> CLOUD LOGIN
+            </button>
+          )}
 
           <button className="neo-btn white" onClick={handleExport}>
             <Download size={20} strokeWidth={3} /> CSV
@@ -206,7 +231,9 @@ const Dashboard: React.FC = () => {
         }
         .actions-section {
             display: flex;
+            align-items: center;
             gap: 1rem;
+            flex-wrap: wrap;
         }
         
         .month-nav {
@@ -239,6 +266,13 @@ const Dashboard: React.FC = () => {
             .content-grid {
                 grid-template-columns: 1fr 2fr;
             }
+        }
+        @keyframes spin {
+             0% { transform: rotate(0deg); }
+             100% { transform: rotate(360deg); }
+        }
+        .spin {
+            animation: spin 1s linear infinite;
         }
       `}</style>
     </div>
