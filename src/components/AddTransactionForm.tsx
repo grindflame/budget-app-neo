@@ -3,12 +3,30 @@ import { useBudget } from '../context/BudgetContext';
 import type { TransactionType } from '../context/BudgetContext';
 import { ArrowRight } from 'lucide-react';
 
+const CATEGORIES = [
+    "Rent & Utilities",
+    "Food/Beverages/Groceries",
+    "Transportation/Gas",
+    "Personal Subscription",
+    "Business Subscription",
+    "Personal Purchase",
+    "Business Purchase",
+    "Entertainment/Fun",
+    "Interest / Fees",
+    "Health",
+    "Travel",
+    "Loan Payments",
+    "Donation",
+    "Coffee Shops",
+    "Other"
+];
+
 export const AddTransactionForm: React.FC = () => {
     const { addTransaction } = useBudget();
     const [desc, setDesc] = useState('');
     const [amount, setAmount] = useState('');
     const [type, setType] = useState<TransactionType>('expense');
-    const [category, setCategory] = useState('');
+    const [category, setCategory] = useState(CATEGORIES[0]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -22,7 +40,7 @@ export const AddTransactionForm: React.FC = () => {
         });
         setDesc('');
         setAmount('');
-        setCategory('');
+        // No reset for category
     };
 
     return (
@@ -33,7 +51,7 @@ export const AddTransactionForm: React.FC = () => {
                     <label>DESCRIPTION</label>
                     <input
                         className="neo-input"
-                        placeholder="e.g. Tacos"
+                        placeholder="e.g. Tacos (yummy)"
                         value={desc}
                         onChange={e => setDesc(e.target.value)}
                     />
@@ -67,12 +85,27 @@ export const AddTransactionForm: React.FC = () => {
 
                 <div className="form-group">
                     <label>CATEGORY</label>
-                    <input
-                        className="neo-input"
-                        placeholder="e.g. Food"
-                        value={category}
-                        onChange={e => setCategory(e.target.value)}
-                    />
+                    <div style={{ position: 'relative' }}>
+                        <select
+                            className="neo-input"
+                            value={category}
+                            onChange={e => setCategory(e.target.value)}
+                            style={{ cursor: 'pointer', appearance: 'none' }}
+                        >
+                            {CATEGORIES.map(c => (
+                                <option key={c} value={c}>{c.toUpperCase()}</option>
+                            ))}
+                            <option value="Uncategorized">UNCATEGORIZED</option>
+                        </select>
+                        <div style={{
+                            position: 'absolute',
+                            right: '1rem',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            pointerEvents: 'none',
+                            fontWeight: 'bold'
+                        }}>▼</div>
+                    </div>
                 </div>
 
                 <button type="submit" className="neo-btn yellow" style={{ justifyContent: 'center', width: '100%', marginTop: '1rem' }}>
