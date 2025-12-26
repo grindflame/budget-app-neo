@@ -87,7 +87,7 @@ interface BudgetContextType {
   isSyncing: boolean;
   updatePassword: (currentPw: string, newPw: string) => Promise<boolean>;
   saveOpenRouterKey: (key: string) => Promise<boolean>;
-  aiImportStatements: (files: File[], categoriesHint: string[]) => Promise<ImportResult>;
+  aiImportStatements: (files: File[], categoriesHint: string[], model?: string) => Promise<ImportResult>;
 }
 
 export interface ImportedTransaction extends Omit<Transaction, 'id'> {
@@ -552,7 +552,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  const aiImportStatements = async (files: File[], categoriesHint: string[]): Promise<ImportResult> => {
+  const aiImportStatements = async (files: File[], categoriesHint: string[], model?: string): Promise<ImportResult> => {
     if (!user) throw new Error("Please log in first.");
     if (!files || files.length === 0) throw new Error("No files provided");
 
@@ -561,7 +561,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     form.append('password', user.key);
     if (user.openRouterKey) form.append('openRouterKey', user.openRouterKey);
     form.append('categories', JSON.stringify(categoriesHint || []));
-    form.append('model', 'openai/gpt-4o-mini');
+    if (model) form.append('model', model);
     files.forEach(f => form.append('files', f));
 
     const res = await fetch('/api/import', {

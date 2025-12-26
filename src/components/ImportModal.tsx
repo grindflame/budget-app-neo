@@ -9,6 +9,15 @@ interface ImportModalProps {
   categories: string[];
 }
 
+const AVAILABLE_MODELS = [
+  { value: '', label: 'Auto (CSV: gpt-4o-mini, PDF: gpt-4o)' },
+  { value: 'openai/gpt-4o-mini', label: 'GPT-4o Mini (Fast, Cheap)' },
+  { value: 'openai/gpt-4o', label: 'GPT-4o (Better for PDFs)' },
+  { value: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
+  { value: 'anthropic/claude-3-haiku', label: 'Claude 3 Haiku (Fast)' },
+  { value: 'google/gemini-pro-1.5', label: 'Gemini Pro 1.5' },
+];
+
 export const ImportModal: React.FC<ImportModalProps> = ({ open, onClose, categories }) => {
   const { aiImportStatements, addTransaction } = useBudget();
   const [files, setFiles] = useState<File[]>([]);
@@ -16,6 +25,9 @@ export const ImportModal: React.FC<ImportModalProps> = ({ open, onClose, categor
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string>('');
+  const [rawResponse, setRawResponse] = useState<string | null>(null);
+  const [showRaw, setShowRaw] = useState(false);
 
   const catOptions = useMemo(() => {
     const uniq = new Set<string>(categories || []);
@@ -39,12 +51,18 @@ export const ImportModal: React.FC<ImportModalProps> = ({ open, onClose, categor
     setLoading(true);
     setError(null);
     setInfo(null);
+    setRawResponse(null);
+    setPreview([]);
     try {
-      const result = await aiImportStatements(files, catOptions);
+      const result = await aiImportStatements(files, catOptions, selectedModel || undefined);
       setPreview(result.transactions || []);
+      if (result.raw) {
+        setRawResponse(typeof result.raw === 'string' ? result.raw : JSON.stringify(result.raw, null, 2));
+      }
       if (result.message) setInfo(result.message);
       if (!result.transactions || result.transactions.length === 0) {
         setInfo("No transactions returned. Try a different model or file.");
+        setShowRaw(true); // Auto-show raw response if no transactions
       }
     } catch (e) {
       setError((e as Error).message);
@@ -125,11 +143,49 @@ export const ImportModal: React.FC<ImportModalProps> = ({ open, onClose, categor
               ))}
             </div>
           )}
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <label style={{ fontWeight: 900, minWidth: '120px' }}>2) Model:</label>
+            <select 
+              className="neo-select" 
+              value={selectedModel} 
+              onChange={e => setSelectedModel(e.target.value)}
+              style={{ flex: '1', minWidth: '300px' }}
+            >
+              {AVAILABLE_MODELS.map(m => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </div>
           <button className="neo-btn pink" onClick={runImport} disabled={loading || files.length === 0} style={{ width: '200px', justifyContent: 'center' }}>
             {loading ? 'Processing...' : 'Run Import'}
           </button>
           {error && <div style={{ color: 'red', fontWeight: 900 }}>{error}</div>}
           {info && <div style={{ color: 'black', fontWeight: 700 }}>{info}</div>}
+          {rawResponse && (
+            <div style={{ marginTop: '0.5rem' }}>
+              <button 
+                onClick={() => setShowRaw(!showRaw)} 
+                className="neo-btn white" 
+                style={{ fontSize: '0.85rem', padding: '0.5rem' }}
+              >
+                {showRaw ? 'Hide' : 'Show'} Raw Response
+              </button>
+              {showRaw && (
+                <pre style={{ 
+                  marginTop: '0.5rem', 
+                  padding: '1rem', 
+                  background: '#f0f0f0', 
+                  border: '2px solid black',
+                  overflow: 'auto',
+                  maxHeight: '300px',
+                  fontSize: '0.8rem',
+                  fontFamily: 'monospace'
+                }}>
+                  {rawResponse}
+                </pre>
+              )}
+            </div>
+          )}
         </div>
 
         {preview.length > 0 && (
