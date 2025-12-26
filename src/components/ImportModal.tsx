@@ -22,7 +22,7 @@ const AVAILABLE_MODELS = [
 
 export const ImportModal: React.FC<ImportModalProps> = ({ open, onClose, categories }) => {
   const { aiImportStatements, addTransaction } = useBudget();
-  const [files, setFiles] = useState<File[]>([]);
+  const [files, setFiles] = useState<Array<{ id: string; file: File }>>([]);
   const [preview, setPreview] = useState<ImportedTransaction[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,14 +39,25 @@ export const ImportModal: React.FC<ImportModalProps> = ({ open, onClose, categor
 
   if (!open) return null;
 
+  const makeFileId = () =>
+    (typeof globalThis.crypto?.randomUUID === 'function')
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
     const list = Array.from(e.target.files);
-    setFiles(prev => [...prev, ...list]);
+    const newOnes = list.map(file => ({
+      id: makeFileId(),
+      file,
+    }));
+    setFiles(prev => [...prev, ...newOnes]);
+    // Allow selecting the same file again (some browsers won't fire change otherwise)
+    e.target.value = '';
   };
 
-  const removeFile = (name: string) => {
-    setFiles(prev => prev.filter(f => f.name !== name));
+  const removeFile = (id: string) => {
+    setFiles(prev => prev.filter(f => f.id !== id));
   };
 
   const runImport = async () => {
@@ -56,7 +67,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({ open, onClose, categor
     setRawResponse(null);
     setPreview([]);
     try {
-      const result = await aiImportStatements(files, catOptions, selectedModel || undefined);
+      const result = await aiImportStatements(files.map(f => f.file), catOptions, selectedModel || undefined);
       setPreview(result.transactions || []);
       if (result.raw) {
         setRawResponse(typeof result.raw === 'string' ? result.raw : JSON.stringify(result.raw, null, 2));
@@ -148,10 +159,10 @@ export const ImportModal: React.FC<ImportModalProps> = ({ open, onClose, categor
           </div>
           {files.length > 0 && (
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              {files.map(f => (
-                <span key={f.name} className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                  {f.name}
-                  <button onClick={() => removeFile(f.name)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'red' }}>×</button>
+              {files.map(({ id, file }) => (
+                <span key={id} className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  {file.name} <span style={{ opacity: 0.7, fontWeight: 700 }}>({Math.round(file.size / 1024)} KB)</span>
+                  <button onClick={() => removeFile(id)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'red' }}>×</button>
                 </span>
               ))}
             </div>
@@ -231,7 +242,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({ open, onClose, categor
                       <td><input className="edit-input" value={p.description || ''} onChange={e => updatePreview(idx, 'description', e.target.value)} /></td>
                       <td><input className="edit-input" type="number" value={p.amount ?? 0} onChange={e => updatePreview(idx, 'amount', parseFloat(e.target.value))} /></td>
                       <td>
-                        <select className="edit-input" value={p.type || 'expense'} onChange={e => updatePreview(idx, 'type', e.target.value)}>
+                        <select className="neo-select neo-select-compact" value={p.type || 'expense'} onChange={e => updatePreview(idx, 'type', e.target.value)}>
                           <option value="expense">Expense</option>
                           <option value="income">Income</option>
                           <option value="debt-payment">Debt Payment</option>
@@ -241,7 +252,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({ open, onClose, categor
                         </select>
                       </td>
                       <td>
-                        <select className="edit-input" value={p.category || 'Uncategorized'} onChange={e => updatePreview(idx, 'category', e.target.value)}>
+                        <select className="neo-select neo-select-compact" value={p.category || 'Uncategorized'} onChange={e => updatePreview(idx, 'category', e.target.value)}>
                           {catOptions.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
                       </td>
