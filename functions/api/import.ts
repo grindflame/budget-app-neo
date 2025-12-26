@@ -10,8 +10,8 @@ interface SyncData {
 }
 
 const MAX_TEXT_CHARS = 30000;
-const MAX_BASE64_CHARS = 20000; // For non-PDF files
-const MAX_PDF_BASE64_CHARS = 5000000; // ~3.7MB PDF when base64 encoded (much larger limit for PDFs)
+const MAX_BASE64_CHARS = 20000; // For non-PDF text fallback (CSV)
+const MAX_PDF_BASE64_CHARS = 8000000; // allow larger PDFs; still capped to avoid huge requests
 const MAX_FILES = 4;
 
 interface ParsedTransaction {
@@ -122,10 +122,16 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   const model = userModel || (hasPdf ? defaultPdfModel : defaultCsvModel);
   console.log('[IMPORT] Model selection:', { hasPdf, userModel, selectedModel: model });
 
-  const userContent: Array<{ type: 'text'; text: string }> = [];
+  // OpenRouter supports PDF inputs as `type: "file"` parts (not as raw base64 inside text).
+  // Docs: https://openrouter.ai/docs/features/multimodal/pdfs
+  type OpenRouterContentPart =
+    | { type: 'text'; text: string }
+    | { type: 'file'; file: { filename: string; file_data: string } };
+
+  const userContent: OpenRouterContentPart[] = [];
   const systemPrompt = [
     "You are a financial data extractor. Parse the provided bank statements (PDF or CSV text).",
-    "If content is data:<mime>;base64,... decode the base64 (may be trimmed) and parse what is available.",
+    "If the user provides PDF files, use the PDF content to extract transactions. Do not invent transactions.",
     "Return ONLY valid JSON with this shape:",
     `{"transactions":[{"date":"YYYY-MM-DD","description":"string","amount":123.45,"type":"income|expense|debt-payment|debt-interest|asset-deposit|asset-growth","category":"string","source":"filename"}]}`,
     "Rules:",
@@ -178,13 +184,21 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       });
     }
 
-    const payload = safeText || `data:${mime};base64,${safeBase64}`;
-    console.log('[IMPORT] Payload type:', safeText ? 'text' : 'base64', 'length:', payload.length, 'isPdf:', isPdf, 'wasTruncated:', base64.length > maxBase64ForFile);
-
-    userContent.push({
-      type: 'text',
-      text: `File: ${name} (${mime}). Content (trimmed if indicated):\n${payload}`
-    });
+    // For PDFs, send the file as a `file` content part so OpenRouter can parse it.
+    // For CSV/text, keep using text content (cheaper, more reliable).
+    if (isPdf) {
+      const fileData = `data:${mime};base64,${safeBase64}`;
+      console.log('[IMPORT] Payload type: file(pdf)', 'length:', fileData.length, 'isPdf:', true, 'wasTruncated:', base64.length > maxBase64ForFile);
+      userContent.push({ type: 'text', text: `File: ${name} (${mime}).` });
+      userContent.push({ type: 'file', file: { filename: name, file_data: fileData } });
+    } else {
+      const payload = safeText || `data:${mime};base64,${safeBase64}`;
+      console.log('[IMPORT] Payload type:', safeText ? 'text' : 'base64', 'length:', payload.length, 'isPdf:', false, 'wasTruncated:', base64.length > maxBase64ForFile);
+      userContent.push({
+        type: 'text',
+        text: `File: ${name} (${mime}). Content (trimmed if indicated):\n${payload}`
+      });
+    }
   }
 
   console.log('[IMPORT] Calling OpenRouter API with model:', model);
@@ -192,6 +206,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     model,
     response_format: { type: 'json_object' },
     temperature: 0.1,
+    plugins: [
+      {
+        id: 'file-parser',
+        pdf: { engine: 'pdf-text' }
+      }
+    ],
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userContent }
