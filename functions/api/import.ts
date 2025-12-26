@@ -53,6 +53,21 @@ function guessMime(name: string): string {
   return 'application/octet-stream';
 }
 
+type OpenRouterContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'file'; file: { filename: string; file_data: string } };
+
+type PerFileResult = {
+  file: { name: string; mime: string; sizeBytes: number };
+  model: string;
+  isPdf: boolean;
+  wasTruncated: boolean;
+  ok: boolean;
+  transactionsCount: number;
+  raw?: unknown;
+  error?: string;
+};
+
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   const { request, env } = context;
   console.log('[IMPORT] Request received');
@@ -119,16 +134,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   }
 
   const hasPdf = files.some(f => (f.type || '').includes('pdf') || f.name.toLowerCase().endsWith('.pdf'));
-  const model = userModel || (hasPdf ? defaultPdfModel : defaultCsvModel);
-  console.log('[IMPORT] Model selection:', { hasPdf, userModel, selectedModel: model });
+  const chosenModelForBatch = userModel || (hasPdf ? defaultPdfModel : defaultCsvModel);
+  console.log('[IMPORT] Model selection (batch):', { hasPdf, userModel, selectedModel: chosenModelForBatch });
 
-  // OpenRouter supports PDF inputs as `type: "file"` parts (not as raw base64 inside text).
-  // Docs: https://openrouter.ai/docs/features/multimodal/pdfs
-  type OpenRouterContentPart =
-    | { type: 'text'; text: string }
-    | { type: 'file'; file: { filename: string; file_data: string } };
-
-  const userContent: OpenRouterContentPart[] = [];
   const systemPrompt = [
     "You are a financial data extractor. Parse the provided bank statements (PDF or CSV text).",
     "If the user provides PDF files, use the PDF content to extract transactions. Do not invent transactions.",
@@ -145,138 +153,175 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     "- Limit to 500 transactions."
   ].join('\n');
 
+  const perFile: PerFileResult[] = [];
+  const allTransactions: ParsedTransaction[] = [];
+
   for (const file of files) {
     const name = file.name || 'statement';
     const mime = file.type || guessMime(name);
-    const arrayBuffer = await file.arrayBuffer();
-    const sizeMb = arrayBuffer.byteLength / (1024 * 1024);
-    console.log('[IMPORT] Processing file:', { name, mime, sizeMb: sizeMb.toFixed(2) });
-    if (sizeMb > 12) {
-      console.log('[IMPORT] ERROR: File too large');
-      return jsonResponse({ error: `File ${name} too large (>12MB)` }, 413);
-    }
+    const isPdf = (mime || '').includes('pdf') || name.toLowerCase().endsWith('.pdf');
+    const modelForFile = userModel || (isPdf ? defaultPdfModel : defaultCsvModel);
 
-    let textContent = '';
-    if (mime.includes('text') || name.toLowerCase().endsWith('.csv')) {
-      textContent = await file.text();
-      console.log('[IMPORT] Extracted text content length:', textContent.length);
-    }
+    console.log('[IMPORT] ===== File start =====', { name, mime, isPdf, modelForFile });
 
-    const base64 = toBase64(arrayBuffer);
-    const isPdf = mime.includes('pdf') || name.toLowerCase().endsWith('.pdf');
-    const maxBase64ForFile = isPdf ? MAX_PDF_BASE64_CHARS : MAX_BASE64_CHARS;
-    
-    const safeText = textContent
-      ? (textContent.length > MAX_TEXT_CHARS
-        ? `${textContent.slice(0, MAX_TEXT_CHARS)}\n...[TRIMMED ${textContent.length - MAX_TEXT_CHARS} CHARS]`
-        : textContent)
-      : '';
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const sizeMb = arrayBuffer.byteLength / (1024 * 1024);
+      console.log('[IMPORT] File bytes:', arrayBuffer.byteLength, '(', sizeMb.toFixed(2), 'MB )');
+      if (sizeMb > 12) {
+        throw new Error(`File ${name} too large (>12MB)`);
+      }
 
-    const safeBase64 = base64.length > maxBase64ForFile
-      ? `${base64.slice(0, maxBase64ForFile)}...[TRIMMED ${base64.length - maxBase64ForFile} CHARS]`
-      : base64;
+      let textContent = '';
+      if (mime.includes('text') || name.toLowerCase().endsWith('.csv')) {
+        textContent = await file.text();
+        console.log('[IMPORT] Extracted text content length:', textContent.length);
+      }
 
-    if (isPdf && base64.length > maxBase64ForFile) {
-      console.log('[IMPORT] WARNING: PDF is very large and will be truncated!', {
-        originalSize: base64.length,
-        maxSize: maxBase64ForFile,
-        truncatedBy: base64.length - maxBase64ForFile
+      const base64 = toBase64(arrayBuffer);
+      const maxBase64ForFile = isPdf ? MAX_PDF_BASE64_CHARS : MAX_BASE64_CHARS;
+      const wasTruncated = base64.length > maxBase64ForFile;
+
+      const safeText = textContent
+        ? (textContent.length > MAX_TEXT_CHARS
+          ? `${textContent.slice(0, MAX_TEXT_CHARS)}\n...[TRIMMED ${textContent.length - MAX_TEXT_CHARS} CHARS]`
+          : textContent)
+        : '';
+
+      const safeBase64 = wasTruncated
+        ? `${base64.slice(0, maxBase64ForFile)}...[TRIMMED ${base64.length - maxBase64ForFile} CHARS]`
+        : base64;
+
+      if (wasTruncated) {
+        console.log('[IMPORT] WARNING: File base64 was truncated', {
+          name,
+          isPdf,
+          originalSize: base64.length,
+          maxSize: maxBase64ForFile,
+        });
+      }
+
+      const userContent: OpenRouterContentPart[] = [];
+      if (isPdf) {
+        const fileData = `data:${mime};base64,${safeBase64}`;
+        console.log('[IMPORT] Payload type: file(pdf)', 'length:', fileData.length);
+        userContent.push({ type: 'text', text: `File: ${name} (${mime}). Extract transactions from this document.` });
+        userContent.push({ type: 'file', file: { filename: name, file_data: fileData } });
+      } else {
+        const payload = safeText || `data:${mime};base64,${safeBase64}`;
+        console.log('[IMPORT] Payload type:', safeText ? 'text' : 'base64', 'length:', payload.length);
+        userContent.push({ type: 'text', text: `File: ${name} (${mime}). Content:\n${payload}` });
+      }
+
+      const requestBody: any = {
+        model: modelForFile,
+        response_format: { type: 'json_object' },
+        temperature: 0.1,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userContent }
+        ]
+      };
+
+      // Only enable the PDF parser when we actually send a PDF file part.
+      // Docs: https://openrouter.ai/docs/features/multimodal/pdfs
+      if (isPdf) {
+        requestBody.plugins = [{ id: 'file-parser', pdf: { engine: 'pdf-text' } }];
+      }
+
+      console.log('[IMPORT] Calling OpenRouter (per-file):', { name, model: modelForFile, isPdf, bodyChars: JSON.stringify(requestBody).length });
+      const aiRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${openRouterKey}`,
+          'HTTP-Referer': 'https://brutal-budget.pages.dev',
+          'X-Title': 'Brutal Budget Importer'
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      console.log('[IMPORT] OpenRouter response status (per-file):', name, aiRes.status, aiRes.statusText);
+      if (!aiRes.ok) {
+        const txt = await aiRes.text();
+        console.log('[IMPORT] ERROR: OpenRouter call failed (per-file):', name, txt.substring(0, 500));
+        perFile.push({
+          file: { name, mime, sizeBytes: arrayBuffer.byteLength },
+          model: modelForFile,
+          isPdf,
+          wasTruncated,
+          ok: false,
+          transactionsCount: 0,
+          error: txt,
+        });
+        continue;
+      }
+
+      const data = await aiRes.json() as any;
+      const content = data?.choices?.[0]?.message?.content;
+      const raw = content;
+      console.log('[IMPORT] Raw content preview (per-file):', name, typeof content === 'string' ? content.substring(0, 200) : JSON.stringify(content).substring(0, 200));
+
+      let parsed: ParsedTransaction[] = [];
+      try {
+        const obj = typeof content === 'string' ? JSON.parse(content) : content;
+        if (obj && Array.isArray(obj.transactions)) {
+          parsed = obj.transactions;
+        }
+      } catch (e) {
+        console.log('[IMPORT] ERROR: Could not parse AI response (per-file):', name, String(e));
+        perFile.push({
+          file: { name, mime, sizeBytes: arrayBuffer.byteLength },
+          model: modelForFile,
+          isPdf,
+          wasTruncated,
+          ok: false,
+          transactionsCount: 0,
+          raw,
+          error: `Could not parse AI response: ${String(e)}`,
+        });
+        continue;
+      }
+
+      // Ensure source is always populated for downstream UX.
+      const withSource = parsed.map(t => ({
+        ...t,
+        source: (t && typeof t === 'object' && (t as any).source) ? (t as any).source : name
+      }));
+
+      allTransactions.push(...withSource);
+      perFile.push({
+        file: { name, mime, sizeBytes: arrayBuffer.byteLength },
+        model: modelForFile,
+        isPdf,
+        wasTruncated,
+        ok: true,
+        transactionsCount: withSource.length,
+        raw,
+      });
+
+      console.log('[IMPORT] Parsed transactions (per-file):', name, withSource.length);
+    } catch (e) {
+      const msg = String(e);
+      console.log('[IMPORT] ERROR: File processing failed:', name, msg);
+      perFile.push({
+        file: { name, mime, sizeBytes: file.size ?? 0 },
+        model: modelForFile,
+        isPdf,
+        wasTruncated: false,
+        ok: false,
+        transactionsCount: 0,
+        error: msg,
       });
     }
-
-    // For PDFs, send the file as a `file` content part so OpenRouter can parse it.
-    // For CSV/text, keep using text content (cheaper, more reliable).
-    if (isPdf) {
-      const fileData = `data:${mime};base64,${safeBase64}`;
-      console.log('[IMPORT] Payload type: file(pdf)', 'length:', fileData.length, 'isPdf:', true, 'wasTruncated:', base64.length > maxBase64ForFile);
-      userContent.push({ type: 'text', text: `File: ${name} (${mime}).` });
-      userContent.push({ type: 'file', file: { filename: name, file_data: fileData } });
-    } else {
-      const payload = safeText || `data:${mime};base64,${safeBase64}`;
-      console.log('[IMPORT] Payload type:', safeText ? 'text' : 'base64', 'length:', payload.length, 'isPdf:', false, 'wasTruncated:', base64.length > maxBase64ForFile);
-      userContent.push({
-        type: 'text',
-        text: `File: ${name} (${mime}). Content (trimmed if indicated):\n${payload}`
-      });
-    }
   }
 
-  console.log('[IMPORT] Calling OpenRouter API with model:', model);
-  const requestBody = {
-    model,
-    response_format: { type: 'json_object' },
-    temperature: 0.1,
-    plugins: [
-      {
-        id: 'file-parser',
-        pdf: { engine: 'pdf-text' }
-      }
-    ],
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userContent }
-    ]
-  };
-  console.log('[IMPORT] Request body size:', JSON.stringify(requestBody).length, 'chars');
-  console.log('[IMPORT] System prompt length:', systemPrompt.length);
-  console.log('[IMPORT] User content items:', userContent.length);
-
-  const aiRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${openRouterKey}`,
-      'HTTP-Referer': 'https://brutal-budget.pages.dev',
-      'X-Title': 'Brutal Budget Importer'
-    },
-    body: JSON.stringify(requestBody)
-  });
-
-  console.log('[IMPORT] OpenRouter response status:', aiRes.status, aiRes.statusText);
-  if (!aiRes.ok) {
-    const txt = await aiRes.text();
-    console.log('[IMPORT] ERROR: OpenRouter call failed:', txt.substring(0, 500));
-    return jsonResponse({ error: "OpenRouter call failed", detail: txt }, 502);
-  }
-
-  let parsed: ParsedTransaction[] = [];
-  let raw: unknown;
-  try {
-    const data = await aiRes.json() as any;
-    console.log('[IMPORT] OpenRouter response structure:', {
-      hasChoices: !!data?.choices,
-      choicesLength: data?.choices?.length,
-      hasMessage: !!data?.choices?.[0]?.message,
-      hasContent: !!data?.choices?.[0]?.message?.content
-    });
-    const content = data?.choices?.[0]?.message?.content;
-    raw = content;
-    console.log('[IMPORT] Raw content type:', typeof content, 'length:', typeof content === 'string' ? content.length : 'N/A');
-    console.log('[IMPORT] Raw content preview:', typeof content === 'string' ? content.substring(0, 200) : JSON.stringify(content).substring(0, 200));
-    
-    const obj = typeof content === 'string' ? JSON.parse(content) : content;
-    console.log('[IMPORT] Parsed object keys:', Object.keys(obj || {}));
-    console.log('[IMPORT] Has transactions array:', Array.isArray(obj?.transactions));
-    if (obj && Array.isArray(obj.transactions)) {
-      parsed = obj.transactions;
-      console.log('[IMPORT] Parsed transactions count:', parsed.length);
-      if (parsed.length > 0) {
-        console.log('[IMPORT] First transaction sample:', JSON.stringify(parsed[0]));
-      }
-    } else {
-      console.log('[IMPORT] WARNING: No transactions array found in response');
-      console.log('[IMPORT] Full parsed object:', JSON.stringify(obj).substring(0, 1000));
-    }
-  } catch (e) {
-    console.log('[IMPORT] ERROR: Could not parse AI response:', String(e));
-    console.log('[IMPORT] Raw content that failed:', typeof raw === 'string' ? raw.substring(0, 500) : JSON.stringify(raw).substring(0, 500));
-    return jsonResponse({ error: "Could not parse AI response", detail: String(e) }, 500);
-  }
-
-  console.log('[IMPORT] Returning response with', parsed.length, 'transactions');
+  console.log('[IMPORT] Returning merged response:', { files: perFile.length, transactions: allTransactions.length });
   return jsonResponse({
-    transactions: parsed,
-    raw
+    transactions: allTransactions,
+    raw: perFile.map(r => ({ file: r.file.name, ok: r.ok, model: r.model, raw: r.raw, error: r.error })),
+    perFile,
+    selectedModel: chosenModelForBatch,
   });
 };
 
