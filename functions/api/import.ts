@@ -9,6 +9,10 @@ interface SyncData {
   openRouterKey?: string;
 }
 
+const MAX_TEXT_CHARS = 30000;
+const MAX_BASE64_CHARS = 20000;
+const MAX_FILES = 4;
+
 interface ParsedTransaction {
   date: string;
   description: string;
@@ -55,7 +59,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   const email = form.get('email')?.toString() || '';
   const password = form.get('password')?.toString() || '';
   const overrideKey = form.get('openRouterKey')?.toString() || '';
-  const model = form.get('model')?.toString() || 'openai/gpt-4o-mini';
+  const userModel = form.get('model')?.toString() || '';
+  const defaultCsvModel = 'openai/gpt-4o-mini';
+  const defaultPdfModel = 'openai/gpt-4o';
   const categoriesRaw = form.get('categories')?.toString() || '[]';
 
   let categories: string[] = [];
@@ -66,7 +72,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     categories = [];
   }
 
-  const files = form.getAll('files').filter((f): f is File => f instanceof File);
+  const files = form.getAll('files').filter((f): f is File => f instanceof File).slice(0, MAX_FILES);
   if (files.length === 0) {
     return jsonResponse({ error: "No files provided" }, 400);
   }
@@ -86,9 +92,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     return jsonResponse({ error: "No OpenRouter key on profile" }, 400);
   }
 
+  const hasPdf = files.some(f => (f.type || '').includes('pdf') || f.name.toLowerCase().endsWith('.pdf'));
+  const model = userModel || (hasPdf ? defaultPdfModel : defaultCsvModel);
+
   const userContent: Array<{ type: 'text'; text: string }> = [];
   const systemPrompt = [
     "You are a financial data extractor. Parse the provided bank statements (PDF or CSV text).",
+    "If content is data:<mime>;base64,... decode the base64 (may be trimmed) and parse what is available.",
     "Return ONLY valid JSON with this shape:",
     `{"transactions":[{"date":"YYYY-MM-DD","description":"string","amount":123.45,"type":"income|expense|debt-payment|debt-interest|asset-deposit|asset-growth","category":"string","source":"filename"}]}`,
     "Rules:",
@@ -115,13 +125,21 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     }
 
     const base64 = toBase64(arrayBuffer);
-    const payload = textContent && textContent.length < 120000
-      ? textContent
-      : `data:${mime};base64,${base64}`;
+    const safeText = textContent
+      ? (textContent.length > MAX_TEXT_CHARS
+        ? `${textContent.slice(0, MAX_TEXT_CHARS)}\n...[TRIMMED ${textContent.length - MAX_TEXT_CHARS} CHARS]`
+        : textContent)
+      : '';
+
+    const safeBase64 = base64.length > MAX_BASE64_CHARS
+      ? `${base64.slice(0, MAX_BASE64_CHARS)}...[TRIMMED ${base64.length - MAX_BASE64_CHARS} CHARS]`
+      : base64;
+
+    const payload = safeText || `data:${mime};base64,${safeBase64}`;
 
     userContent.push({
       type: 'text',
-      text: `File: ${name} (${mime}). Content:\n${payload}`
+      text: `File: ${name} (${mime}). Content (trimmed if indicated):\n${payload}`
     });
   }
 
