@@ -13,9 +13,11 @@ const AVAILABLE_MODELS = [
   { value: '', label: 'Auto (CSV: gpt-4o-mini, PDF: gpt-4o)' },
   { value: 'openai/gpt-4o-mini', label: 'GPT-4o Mini (Fast, Cheap)' },
   { value: 'openai/gpt-4o', label: 'GPT-4o (Better for PDFs)' },
+  { value: 'openai/gpt-4o-2024-11-20', label: 'GPT-4o (Nov 2024)' },
   { value: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
-  { value: 'anthropic/claude-3-haiku', label: 'Claude 3 Haiku (Fast)' },
-  { value: 'google/gemini-pro-1.5', label: 'Gemini Pro 1.5' },
+  { value: 'anthropic/claude-3.5-haiku', label: 'Claude 3.5 Haiku (Fast)' },
+  { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+  { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
 ];
 
 export const ImportModal: React.FC<ImportModalProps> = ({ open, onClose, categories }) => {

@@ -10,7 +10,8 @@ interface SyncData {
 }
 
 const MAX_TEXT_CHARS = 30000;
-const MAX_BASE64_CHARS = 20000;
+const MAX_BASE64_CHARS = 20000; // For non-PDF files
+const MAX_PDF_BASE64_CHARS = 5000000; // ~3.7MB PDF when base64 encoded (much larger limit for PDFs)
 const MAX_FILES = 4;
 
 interface ParsedTransaction {
@@ -156,18 +157,29 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     }
 
     const base64 = toBase64(arrayBuffer);
+    const isPdf = mime.includes('pdf') || name.toLowerCase().endsWith('.pdf');
+    const maxBase64ForFile = isPdf ? MAX_PDF_BASE64_CHARS : MAX_BASE64_CHARS;
+    
     const safeText = textContent
       ? (textContent.length > MAX_TEXT_CHARS
         ? `${textContent.slice(0, MAX_TEXT_CHARS)}\n...[TRIMMED ${textContent.length - MAX_TEXT_CHARS} CHARS]`
         : textContent)
       : '';
 
-    const safeBase64 = base64.length > MAX_BASE64_CHARS
-      ? `${base64.slice(0, MAX_BASE64_CHARS)}...[TRIMMED ${base64.length - MAX_BASE64_CHARS} CHARS]`
+    const safeBase64 = base64.length > maxBase64ForFile
+      ? `${base64.slice(0, maxBase64ForFile)}...[TRIMMED ${base64.length - maxBase64ForFile} CHARS]`
       : base64;
 
+    if (isPdf && base64.length > maxBase64ForFile) {
+      console.log('[IMPORT] WARNING: PDF is very large and will be truncated!', {
+        originalSize: base64.length,
+        maxSize: maxBase64ForFile,
+        truncatedBy: base64.length - maxBase64ForFile
+      });
+    }
+
     const payload = safeText || `data:${mime};base64,${safeBase64}`;
-    console.log('[IMPORT] Payload type:', safeText ? 'text' : 'base64', 'length:', payload.length);
+    console.log('[IMPORT] Payload type:', safeText ? 'text' : 'base64', 'length:', payload.length, 'isPdf:', isPdf, 'wasTruncated:', base64.length > maxBase64ForFile);
 
     userContent.push({
       type: 'text',
