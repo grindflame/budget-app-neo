@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "bulk-import": "node scripts/bulk-import.mjs"
   },
   "dependencies": {
     "@types/papaparse": "^5.5.2",
