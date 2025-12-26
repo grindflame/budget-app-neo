@@ -156,7 +156,7 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions }
                                     <td>
                                         {isEditing ? (
                                             <select
-                                                className="edit-input"
+                                                className="neo-select neo-select-compact"
                                                 value={editForm.category}
                                                 onChange={e => setEditForm({ ...editForm, category: e.target.value })}
                                             >
@@ -173,8 +173,8 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions }
                                         {isEditing ? (
                                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '5px' }}>
                                                 <select
-                                                    className="edit-input"
-                                                    style={{ width: '100px', padding: '0 2px', fontSize: '0.7rem' }}
+                                                    className="neo-select neo-select-compact"
+                                                    style={{ width: '120px' }}
                                                     value={editForm.type}
                                                     onChange={e => setEditForm({ ...editForm, type: e.target.value as TransactionType })}
                                                 >

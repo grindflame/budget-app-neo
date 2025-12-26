@@ -91,7 +91,8 @@ body {
   background: var(--neo-white);
 }
 
-.neo-input {
+.neo-input,
+.neo-select {
   border: var(--border-width) solid var(--neo-black);
   padding: 1rem;
   font-family: inherit;
@@ -103,11 +104,39 @@ body {
   border-radius: 0px;
 }
 
-.neo-input:focus {
+.neo-input:focus,
+.neo-select:focus {
   outline: none;
   background: #fff;
   transform: translate(-2px, -2px);
   box-shadow: 6px 6px 0px var(--neo-black);
+}
+
+.neo-select {
+  appearance: none;
+  cursor: pointer;
+  padding-right: 3rem;
+  text-transform: uppercase;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--neo-black) 50%),
+    linear-gradient(135deg, var(--neo-black) 50%, transparent 50%),
+    linear-gradient(var(--neo-black), var(--neo-black));
+  background-position:
+    calc(100% - 22px) center,
+    calc(100% - 14px) center,
+    calc(100% - 32px) center;
+  background-size: 10px 10px, 10px 10px, 2px 18px;
+  background-repeat: no-repeat;
+}
+
+.neo-select option {
+  font-weight: 800;
+}
+
+.neo-select.neo-select-compact {
+  padding: 0.35rem 2.5rem 0.35rem 0.5rem;
+  font-size: 0.85rem;
+  box-shadow: 3px 3px 0px var(--neo-black);
 }
 
 h1,

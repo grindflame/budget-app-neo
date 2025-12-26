@@ -170,7 +170,7 @@ const RecurringModal: React.FC<{ onClose: () => void; defaultStartMonth: string 
                   <div>
                     <label style={{ fontWeight: 'bold' }}>TYPE</label>
                     <select
-                      className="neo-input"
+                      className="neo-select"
                       value={form.type}
                       onChange={e => {
                         const v = e.target.value as TransactionType;
@@ -196,7 +196,7 @@ const RecurringModal: React.FC<{ onClose: () => void; defaultStartMonth: string 
                   <div>
                     <label style={{ fontWeight: 'bold' }}>LINK TO DEBT ACCOUNT (OPTIONAL)</label>
                     <select
-                      className="neo-input"
+                      className="neo-select"
                       style={{ border: '4px solid var(--neo-pink)' }}
                       value={form.debtAccountId || ''}
                       onChange={e => setForm(prev => ({ ...prev, debtAccountId: e.target.value || undefined }))}
@@ -211,7 +211,7 @@ const RecurringModal: React.FC<{ onClose: () => void; defaultStartMonth: string 
                   <div>
                     <label style={{ fontWeight: 'bold' }}>LINK TO ASSET ACCOUNT (OPTIONAL)</label>
                     <select
-                      className="neo-input"
+                      className="neo-select"
                       style={{ border: '4px solid var(--neo-green)' }}
                       value={form.assetAccountId || ''}
                       onChange={e => setForm(prev => ({ ...prev, assetAccountId: e.target.value || undefined }))}
@@ -225,7 +225,7 @@ const RecurringModal: React.FC<{ onClose: () => void; defaultStartMonth: string 
                 <div>
                   <label style={{ fontWeight: 'bold' }}>CATEGORY</label>
                   <select
-                    className="neo-input"
+                    className="neo-select"
                     value={form.category}
                     onChange={e => setForm(prev => ({ ...prev, category: e.target.value }))}
                   >

@@ -95,14 +95,13 @@ export const AddTransactionForm: React.FC = () => {
                 <div className="form-group">
                     <label>TYPE</label>
                     <select
-                        className="neo-input"
+                        className="neo-select"
                         value={type}
                         onChange={e => {
                             setType(e.target.value as TransactionType);
                             setSelectedDebtId('');
                             setSelectedAssetId('');
                         }}
-                        style={{ cursor: 'pointer', appearance: 'none' }}
                     >
                         <option value="expense">EXPENSE</option>
                         <option value="income">INCOME</option>
@@ -117,7 +116,7 @@ export const AddTransactionForm: React.FC = () => {
                     <div className="form-group">
                         <label>LINK TO DEBT ACCOUNT</label>
                         <select
-                            className="neo-input"
+                                className="neo-select"
                             style={{ border: '4px solid var(--neo-pink)' }}
                             value={selectedDebtId}
                             onChange={e => setSelectedDebtId(e.target.value)}
@@ -134,7 +133,7 @@ export const AddTransactionForm: React.FC = () => {
                     <div className="form-group">
                         <label>LINK TO ASSET ACCOUNT</label>
                         <select
-                            className="neo-input"
+                                className="neo-select"
                             style={{ border: '4px solid var(--neo-green)' }}
                             value={selectedAssetId}
                             onChange={e => setSelectedAssetId(e.target.value)}
@@ -149,27 +148,16 @@ export const AddTransactionForm: React.FC = () => {
 
                 <div className="form-group">
                     <label>CATEGORY</label>
-                    <div style={{ position: 'relative' }}>
-                        <select
-                            className="neo-input"
-                            value={category}
-                            onChange={e => setCategory(e.target.value)}
-                            style={{ cursor: 'pointer', appearance: 'none' }}
-                        >
-                            {CATEGORIES.map(c => (
-                                <option key={c} value={c}>{c.toUpperCase()}</option>
-                            ))}
-                            <option value="Uncategorized">UNCATEGORIZED</option>
-                        </select>
-                        <div style={{
-                            position: 'absolute',
-                            right: '1rem',
-                            top: '50%',
-                            transform: 'translateY(-50%)',
-                            pointerEvents: 'none',
-                            fontWeight: 'bold'
-                        }}>▼</div>
-                    </div>
+                    <select
+                        className="neo-select"
+                        value={category}
+                        onChange={e => setCategory(e.target.value)}
+                    >
+                        {CATEGORIES.map(c => (
+                            <option key={c} value={c}>{c.toUpperCase()}</option>
+                        ))}
+                        <option value="Uncategorized">UNCATEGORIZED</option>
+                    </select>
                 </div>
 
                 <button type="submit" className="neo-btn yellow" style={{ justifyContent: 'center', width: '100%', marginTop: '1rem' }}>

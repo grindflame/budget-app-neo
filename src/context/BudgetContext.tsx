@@ -44,6 +44,7 @@ export interface RecurringRule {
 interface User {
   email: string;
   key: string;
+  openRouterKey?: string;
 }
 
 export interface CategoryBudget {
@@ -84,6 +85,19 @@ interface BudgetContextType {
   loadFromCloud: (email: string, pw: string) => Promise<boolean>;
   logout: () => void;
   isSyncing: boolean;
+  updatePassword: (currentPw: string, newPw: string) => Promise<boolean>;
+  saveOpenRouterKey: (key: string) => Promise<boolean>;
+  aiImportStatements: (files: File[], categoriesHint: string[]) => Promise<ImportResult>;
+}
+
+export interface ImportedTransaction extends Omit<Transaction, 'id'> {
+  source?: string;
+}
+
+export interface ImportResult {
+  transactions: ImportedTransaction[];
+  message?: string;
+  raw?: unknown;
 }
 
 const BudgetContext = createContext<BudgetContextType | undefined>(undefined);
@@ -440,7 +454,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
       if (!res.ok) throw new Error(await res.text());
 
-      const newUser = { email, key: pw };
+      const newUser: User = { email, key: pw, openRouterKey: user?.openRouterKey };
       setUser(newUser);
       localStorage.setItem('budget_user', JSON.stringify(newUser));
       return true;
@@ -464,7 +478,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (data.categoryBudgets) setCategoryBudgets(data.categoryBudgets);
         if (data.recurring) setRecurring(data.recurring);
 
-        const newUser = { email, key: pw };
+        const newUser: User = { email, key: pw, openRouterKey: user?.openRouterKey };
         setUser(newUser);
         localStorage.setItem('budget_user', JSON.stringify(newUser));
         return true;
@@ -482,8 +496,118 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     localStorage.removeItem('budget_user');
   };
 
+  const updatePassword = async (currentPw: string, newPw: string): Promise<boolean> => {
+    if (!user) {
+      alert("Please log in first.");
+      return false;
+    }
+    if (!currentPw || !newPw) return false;
+    try {
+      const res = await fetch('/api/profile?action=change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: user.email,
+          oldPassword: currentPw,
+          newPassword: newPw
+        })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const updated: User = { ...user, key: newPw };
+      setUser(updated);
+      localStorage.setItem('budget_user', JSON.stringify(updated));
+      alert("Password updated");
+      return true;
+    } catch (e) {
+      alert("Update failed: " + e);
+      return false;
+    }
+  };
+
+  const saveOpenRouterKey = async (key: string): Promise<boolean> => {
+    if (!user) {
+      alert("Please log in first.");
+      return false;
+    }
+    if (!key) return false;
+    try {
+      const res = await fetch('/api/profile?action=save-openrouter-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: user.email,
+          password: user.key,
+          openRouterKey: key
+        })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const updated: User = { ...user, openRouterKey: key };
+      setUser(updated);
+      localStorage.setItem('budget_user', JSON.stringify(updated));
+      alert("OpenRouter key saved");
+      return true;
+    } catch (e) {
+      alert("Could not save key: " + e);
+      return false;
+    }
+  };
+
+  const aiImportStatements = async (files: File[], categoriesHint: string[]): Promise<ImportResult> => {
+    if (!user) throw new Error("Please log in first.");
+    if (!files || files.length === 0) throw new Error("No files provided");
+
+    const form = new FormData();
+    form.append('email', user.email);
+    form.append('password', user.key);
+    if (user.openRouterKey) form.append('openRouterKey', user.openRouterKey);
+    form.append('categories', JSON.stringify(categoriesHint || []));
+    form.append('model', 'openai/gpt-4o-mini');
+    files.forEach(f => form.append('files', f));
+
+    const res = await fetch('/api/import', {
+      method: 'POST',
+      body: form
+    });
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(txt || "Import failed");
+    }
+    return res.json() as Promise<ImportResult>;
+  };
+
   return (
-    <BudgetContext.Provider value={{ transactions, debts, assets, recurring, user, categoryBudgets, addTransaction, editTransaction, deleteTransaction, addDebt, editDebt, deleteDebt, addAsset, editAsset, deleteAsset, addRecurring, editRecurring, deleteRecurring, toggleRecurring, generateRecurringForMonth, setCategoryBudget, importCSV, clearAll, syncToCloud, loadFromCloud, logout, isSyncing }}>
+    <BudgetContext.Provider value={{
+      transactions,
+      debts,
+      assets,
+      recurring,
+      user,
+      categoryBudgets,
+      addTransaction,
+      editTransaction,
+      deleteTransaction,
+      addDebt,
+      editDebt,
+      deleteDebt,
+      addAsset,
+      editAsset,
+      deleteAsset,
+      addRecurring,
+      editRecurring,
+      deleteRecurring,
+      toggleRecurring,
+      generateRecurringForMonth,
+      setCategoryBudget,
+      importCSV,
+      clearAll,
+      syncToCloud,
+      loadFromCloud,
+      logout,
+      isSyncing,
+      updatePassword,
+      saveOpenRouterKey,
+      aiImportStatements
+    }}>
       {children}
     </BudgetContext.Provider>
   );

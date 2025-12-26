@@ -5,8 +5,28 @@ import { SummaryCards } from './components/SummaryCards';
 import { AddTransactionForm } from './components/AddTransactionForm';
 import { BudgetCharts } from './components/BudgetCharts';
 import { TransactionList } from './components/TransactionList';
-import { Upload, Download, Trash, ChevronLeft, ChevronRight, Wallet, Cloud, X, LogOut, RefreshCw } from 'lucide-react';
+import { ImportModal } from './components/ImportModal';
+import { ProfileModal } from './components/ProfileModal';
+import { Upload, Download, Trash, ChevronLeft, ChevronRight, Wallet, Cloud, X, LogOut, RefreshCw, Sparkles, Settings2 } from 'lucide-react';
 import { format, addMonths, subMonths, parseISO } from 'date-fns';
+
+const DEFAULT_CATEGORIES = [
+  "Rent & Utilities",
+  "Food/Beverages/Groceries",
+  "Transportation/Gas",
+  "Personal Subscription",
+  "Business Subscription",
+  "Personal Purchase",
+  "Business Purchase",
+  "Entertainment/Fun",
+  "Interest / Fees",
+  "Health",
+  "Travel",
+  "Loan Payments",
+  "Donation",
+  "Coffee Shops",
+  "Other"
+];
 
 const SyncModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const { syncToCloud, loadFromCloud } = useBudget();
@@ -75,9 +95,11 @@ const SyncModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 };
 
 const Dashboard: React.FC = () => {
-  const { transactions, importCSV, clearAll, user, logout, isSyncing, generateRecurringForMonth } = useBudget();
+  const { transactions, importCSV, clearAll, user, logout, isSyncing, generateRecurringForMonth, categoryBudgets } = useBudget();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showSync, setShowSync] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
 
   // Use state for the selected month YYYY-MM
   const [currentMonth, setCurrentMonth] = useState(() => {
@@ -117,9 +139,13 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  const categoryHints = Array.from(new Set([...DEFAULT_CATEGORIES, ...Object.keys(categoryBudgets || {})]));
+
   return (
     <div className="container">
       {showSync && <SyncModal onClose={() => setShowSync(false)} />}
+      {showImport && <ImportModal open={showImport} onClose={() => setShowImport(false)} categories={categoryHints} />}
+      {showProfile && <ProfileModal open={showProfile} onClose={() => setShowProfile(false)} />}
 
       {/* HEADER SECTION */}
       <header className="app-header">
@@ -163,6 +189,12 @@ const Dashboard: React.FC = () => {
 
           <button className="neo-btn white" onClick={handleImportClick}>
             <Upload size={20} strokeWidth={3} /> CSV
+          </button>
+          <button className="neo-btn white" onClick={() => setShowImport(true)}>
+            <Sparkles size={18} strokeWidth={3} /> AI IMPORT
+          </button>
+          <button className="neo-btn white" onClick={() => setShowProfile(true)} disabled={!user}>
+            <Settings2 size={18} strokeWidth={3} /> PROFILE
           </button>
           <input
             type="file"
