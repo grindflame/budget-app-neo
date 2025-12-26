@@ -33,7 +33,12 @@ function mustGetEnv(name) {
 }
 
 function normBaseUrl(url) {
-  return url.replace(/\/+$/, '');
+  const cleaned = url.replace(/\/+$/, '');
+  // Help catch common mistakes like "brutal-budget.pages.dev" (missing scheme)
+  if (!/^https?:\/\//i.test(cleaned)) {
+    throw new Error(`BUDGET_BASE_URL must include http(s):// (got: ${cleaned})`);
+  }
+  return cleaned;
 }
 
 function chunk(arr, size) {
@@ -67,7 +72,14 @@ async function listPdfFiles(dirAbs) {
 }
 
 async function fetchJson(url, init) {
-  const res = await fetch(url, init);
+  let res;
+  try {
+    res = await fetch(url, init);
+  } catch (e) {
+    const msg = e?.message || String(e);
+    const cause = e?.cause ? (e.cause.message || String(e.cause)) : '';
+    throw new Error(`Fetch failed for ${url}: ${msg}${cause ? ` (cause: ${cause})` : ''}`);
+  }
   const text = await res.text();
   if (!res.ok) {
     throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}: ${text.slice(0, 400)}`);
@@ -88,6 +100,7 @@ async function main() {
   const model = process.env.BUDGET_MODEL || '';
   const dirRel = process.env.BUDGET_DIR || 'import-docs';
   const dryRun = process.env.BUDGET_DRY_RUN === '1';
+  console.log(`Base URL: ${baseUrl}`);
 
   const dirAbs = path.resolve(process.cwd(), dirRel);
   const pdfFiles = await listPdfFiles(dirAbs);
