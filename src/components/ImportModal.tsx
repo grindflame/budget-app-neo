@@ -118,7 +118,18 @@ export const ImportModal: React.FC<ImportModalProps> = ({ open, onClose, categor
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex',
       alignItems: 'center', justifyContent: 'center', zIndex: 1000
     }}>
-      <div className="neo-box" style={{ width: '96%', maxWidth: '1100px', background: 'var(--neo-white)', position: 'relative', maxHeight: '90vh', overflow: 'hidden' }}>
+      <div
+        className="neo-box"
+        style={{
+          width: '96%',
+          maxWidth: '1100px',
+          background: 'var(--neo-white)',
+          position: 'relative',
+          maxHeight: '90vh',
+          overflowY: 'auto',
+          overflowX: 'hidden',
+        }}
+      >
         <button onClick={onClose} style={{ position: 'absolute', top: 12, right: 12, border: 'none', background: 'transparent', cursor: 'pointer' }}>
           <X size={22} />
         </button>
