@@ -9,7 +9,7 @@ function usage(exitCode = 1) {
       'Bulk-import PDFs into a cloud user via the existing /api/import + /api/sync endpoints.',
       '',
       'Required env vars:',
-      '  BUDGET_BASE_URL   e.g. https://brutal-budget.pages.dev',
+      '  BUDGET_BASE_URL   e.g. https://neo-budget.pages.dev',
       '  BUDGET_EMAIL',
       '  BUDGET_PASSWORD',
       '',
@@ -34,7 +34,7 @@ function mustGetEnv(name) {
 
 function normBaseUrl(url) {
   const cleaned = url.replace(/\/+$/, '');
-  // Help catch common mistakes like "brutal-budget.pages.dev" (missing scheme)
+  // Help catch common mistakes like "neo-budget.pages.dev" (missing scheme)
   if (!/^https?:\/\//i.test(cleaned)) {
     throw new Error(`BUDGET_BASE_URL must include http(s):// (got: ${cleaned})`);
   }
@@ -72,13 +72,20 @@ async function listPdfFiles(dirAbs) {
 }
 
 async function fetchJson(url, init) {
+  const timeoutMs = Number(process.env.BUDGET_TIMEOUT_MS || 0) || 0;
+  const controller = timeoutMs ? new AbortController() : null;
+  const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
   let res;
   try {
-    res = await fetch(url, init);
+    res = await fetch(url, { ...init, signal: controller?.signal });
   } catch (e) {
     const msg = e?.message || String(e);
     const cause = e?.cause ? (e.cause.message || String(e.cause)) : '';
-    throw new Error(`Fetch failed for ${url}: ${msg}${cause ? ` (cause: ${cause})` : ''}`);
+    const isAbort = e?.name === 'AbortError';
+    const abortNote = isAbort ? ` (timeout after ${timeoutMs}ms)` : '';
+    throw new Error(`Fetch failed for ${url}: ${msg}${cause ? ` (cause: ${cause})` : ''}${abortNote}`);
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
   const text = await res.text();
   if (!res.ok) {
@@ -100,7 +107,13 @@ async function main() {
   const model = process.env.BUDGET_MODEL || '';
   const dirRel = process.env.BUDGET_DIR || 'import-docs';
   const dryRun = process.env.BUDGET_DRY_RUN === '1';
+  const batchSize = Number(process.env.BUDGET_BATCH_SIZE || '1') || 1;
+  const saveEach = (process.env.BUDGET_SAVE_EACH || '1') !== '0';
   console.log(`Base URL: ${baseUrl}`);
+  if (!process.env.BUDGET_TIMEOUT_MS) {
+    // Default timeout: 5 minutes per request
+    process.env.BUDGET_TIMEOUT_MS = '300000';
+  }
 
   const dirAbs = path.resolve(process.cwd(), dirRel);
   const pdfFiles = await listPdfFiles(dirAbs);
@@ -126,11 +139,14 @@ async function main() {
   const seen = new Set(existingTx.map(txKey));
   const merged = [...existingTx];
 
-  // Import in chunks of 4 (matches worker MAX_FILES).
-  const batches = chunk(pdfFiles, 4);
+  // Import in user-controlled batches (default 1 file) to avoid a single slow doc stalling the run.
+  // Worker MAX_FILES is 4, but batching 1 makes progress + persistence much more reliable.
+  const batches = chunk(pdfFiles, Math.max(1, Math.min(4, batchSize)));
   let totalImported = 0;
   let totalDeduped = 0;
   let totalFailedFiles = 0;
+
+  const syncPostUrl = `${baseUrl}/api/sync`;
 
   for (let bi = 0; bi < batches.length; bi++) {
     const batch = batches[bi];
@@ -198,6 +214,24 @@ async function main() {
     totalImported += importedThisBatch;
     totalDeduped += dedupedThisBatch;
     console.log(`  Added ${importedThisBatch} new tx (deduped ${dedupedThisBatch})`);
+
+    // Persist progress after each batch (default is per-doc batching).
+    if (!dryRun && saveEach) {
+      await fetchJson(syncPostUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          password,
+          transactions: merged,
+          debts,
+          assets,
+          categoryBudgets,
+          recurring,
+        }),
+      });
+      console.log(`  Saved to cloud. Total transactions now: ${merged.length}`);
+    }
   }
 
   console.log(`\nDone parsing. New tx added: ${totalImported}. Deduped: ${totalDeduped}. Failed files: ${totalFailedFiles}.`);
@@ -206,23 +240,24 @@ async function main() {
     console.log('Dry-run enabled: skipping /api/sync writeback.');
     return;
   }
-
-  const syncPostUrl = `${baseUrl}/api/sync`;
-  await fetchJson(syncPostUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      email,
-      password,
-      transactions: merged,
-      debts,
-      assets,
-      categoryBudgets,
-      recurring,
-    }),
-  });
-
-  console.log(`Cloud sync updated. Total transactions now: ${merged.length}`);
+  if (!saveEach) {
+    await fetchJson(syncPostUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email,
+        password,
+        transactions: merged,
+        debts,
+        assets,
+        categoryBudgets,
+        recurring,
+      }),
+    });
+    console.log(`Cloud sync updated. Total transactions now: ${merged.length}`);
+  } else {
+    console.log(`Cloud sync already updated incrementally. Total transactions now: ${merged.length}`);
+  }
 }
 
 main().catch(err => {
