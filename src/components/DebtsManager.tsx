@@ -51,7 +51,14 @@ const DebtModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             .reduce((sum, t) => sum + t.amount, 0);
 
         const current = initial + charges - payments + interest;
-        return { current, payments, charges, interest };
+
+        const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const interest30 = debtTx
+            .filter(t => t.type === 'debt-interest' && t.date >= cutoff)
+            .reduce((sum, t) => sum + t.amount, 0);
+        const aprPct = (current > 0 && interest30 > 0) ? (interest30 / current) * 12 * 100 : null;
+
+        return { current, payments, charges, interest, interest30, aprPct };
     };
 
     return (
@@ -135,6 +142,8 @@ const DebtModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                                     <div>Interest: <b style={{ color: 'var(--neo-pink)' }}>+${stats.interest.toLocaleString()}</b></div>
                                     <div>Payments: <b style={{ color: 'var(--neo-green)' }}>-${stats.payments.toLocaleString()}</b></div>
                                     <div>Charges: <b style={{ color: 'var(--neo-pink)' }}>+${stats.charges.toLocaleString()}</b></div>
+                                    <div>Interest (30d): <b style={{ color: 'var(--neo-pink)' }}>+${stats.interest30.toLocaleString()}</b></div>
+                                    <div>Est APR: <b>{stats.aprPct == null ? '—' : `${stats.aprPct.toFixed(1)}%`}</b></div>
                                 </div>
                             </div>
                         );

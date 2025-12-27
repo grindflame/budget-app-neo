@@ -21,6 +21,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ open, onClose }) => 
     getSimplefinAccountMap,
     setSimplefinAccountMap,
     applySimplefinAccountMapToExisting,
+    transactions,
     debts,
     assets,
     addDebt,
@@ -53,6 +54,51 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ open, onClose }) => 
 
   const simplefinAccounts = useMemo(() => getSimplefinAccounts(), [getSimplefinAccounts, open]);
   const simplefinAccountMap = useMemo(() => getSimplefinAccountMap(), [getSimplefinAccountMap, open]);
+
+  const debtComputed = useMemo(() => {
+    const byId = new Map<string, { current: number; interest30: number; aprPct: number | null }>();
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    for (const d of debts) {
+      const debtTx = transactions.filter(t => t.debtAccountId === d.id);
+      const payments = debtTx
+        .filter(t => t.type === 'debt-payment' || (t.type as string) === 'debt')
+        .reduce((sum, t) => sum + t.amount, 0);
+      const charges = debtTx
+        .filter(t => (t.type as string) === 'debt-charge')
+        .reduce((sum, t) => sum + t.amount, 0);
+      const interest = debtTx
+        .filter(t => t.type === 'debt-interest')
+        .reduce((sum, t) => sum + t.amount, 0);
+      const current = d.startingBalance + charges - payments + interest;
+
+      const interest30 = debtTx
+        .filter(t => t.type === 'debt-interest' && t.date >= cutoff)
+        .reduce((sum, t) => sum + t.amount, 0);
+
+      const aprPct = (current > 0 && interest30 > 0)
+        ? (interest30 / current) * 12 * 100
+        : null;
+
+      byId.set(d.id, { current, interest30, aprPct });
+    }
+    return byId;
+  }, [debts, transactions]);
+
+  const assetComputed = useMemo(() => {
+    const byId = new Map<string, { current: number }>();
+    for (const a of assets) {
+      const assetTx = transactions.filter(t => t.assetAccountId === a.id);
+      const deposits = assetTx
+        .filter(t => t.type === 'asset-deposit')
+        .reduce((sum, t) => sum + t.amount, 0);
+      const growth = assetTx
+        .filter(t => t.type === 'asset-growth')
+        .reduce((sum, t) => sum + t.amount, 0);
+      byId.set(a.id, { current: a.startingBalance + deposits + growth });
+    }
+    return byId;
+  }, [assets, transactions]);
 
   const updateMapEntry = (accountId: string, next: { kind?: 'cash' | 'debt' | 'asset' | 'ignore'; debtAccountId?: string; assetAccountId?: string }) => {
     const prev = simplefinAccountMap[accountId] || { kind: 'cash' as const };
@@ -334,6 +380,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ open, onClose }) => 
                         const entry = simplefinAccountMap[a.id] || { kind: 'cash' as const };
                         const bal = a.balance;
                         const balDate = typeof a.balanceDate === 'number' ? new Date(a.balanceDate * 1000).toISOString().slice(0, 10) : null;
+                        const linkedDebt = entry.kind === 'debt' && entry.debtAccountId ? debtComputed.get(entry.debtAccountId) : null;
+                        const linkedAsset = entry.kind === 'asset' && entry.assetAccountId ? assetComputed.get(entry.assetAccountId) : null;
                         return (
                           <div key={a.id} style={{ border: '2px solid black', padding: '0.75rem' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -344,6 +392,20 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ open, onClose }) => 
                               <span><b>Reported balance:</b> {typeof bal === 'string' ? bal : '—'}</span>
                               <span><b>As-of:</b> {balDate || '—'}</span>
                             </div>
+                            {(linkedDebt || linkedAsset) && (
+                              <div style={{ marginTop: '0.35rem', fontSize: '0.85rem', opacity: 0.9, display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                                {linkedDebt && (
+                                  <>
+                                    <span><b>Estimated current (from history):</b> ${linkedDebt.current.toFixed(2)}</span>
+                                    <span><b>Interest (30d):</b> ${linkedDebt.interest30.toFixed(2)}</span>
+                                    <span><b>Est APR:</b> {linkedDebt.aprPct == null ? '—' : `${linkedDebt.aprPct.toFixed(1)}%`}</span>
+                                  </>
+                                )}
+                                {linkedAsset && (
+                                  <span><b>Estimated current (from history):</b> ${linkedAsset.current.toFixed(2)}</span>
+                                )}
+                              </div>
+                            )}
 
                             <div style={{ marginTop: '0.5rem', display: 'grid', gap: '0.5rem' }}>
                               <label style={{ fontWeight: 900, fontSize: '0.8rem' }}>Type</label>
