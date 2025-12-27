@@ -198,7 +198,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     }
 
     if (action === 'sync') {
-      const daysBack = typeof body.daysBack === 'number' && Number.isFinite(body.daysBack) ? Math.max(1, Math.min(60, Math.floor(body.daysBack))) : 60;
+      const daysBackRaw = typeof body.daysBack === 'number' && Number.isFinite(body.daysBack)
+        ? Math.floor(body.daysBack)
+        : 60;
+      // Bridge limits the range to 60 days per request. We'll chunk up to MAX_DAYS_BACK.
+      const MAX_DAYS_BACK = 360;
+      const requestedDaysBack = Math.max(1, Math.min(MAX_DAYS_BACK, daysBackRaw));
       const includePending = Boolean(body.includePending);
 
       const accessUrl = existing.simplefinAccessUrl;
@@ -207,62 +212,101 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       const { baseUrl, username, password: sfinPw } = splitAccessUrl(accessUrl);
 
       const end = Math.floor(Date.now() / 1000);
-      const maxRangeStart = end - (daysBack * 24 * 60 * 60);
+      const auth = btoa(`${username}:${sfinPw}`);
+      const secondsPerDay = 24 * 60 * 60;
+      const maxDaysPerRequest = 60;
+      const maxRangeSeconds = maxDaysPerRequest * secondsPerDay;
+
       const lastSync = typeof existing.simplefinLastSyncEpoch === 'number' && existing.simplefinLastSyncEpoch > 0
         ? existing.simplefinLastSyncEpoch
         : null;
-      // Use a small overlap so we catch late-posting transactions while still being incremental.
-      const overlapSeconds = 2 * 24 * 60 * 60;
-      const incrementalStart = lastSync ? Math.max(0, lastSync - overlapSeconds) : 0;
-      const start = lastSync ? Math.max(maxRangeStart, incrementalStart) : maxRangeStart;
 
-      const accountsUrl = new URL(`${baseUrl}/accounts`);
-      accountsUrl.searchParams.set('start-date', String(start));
-      accountsUrl.searchParams.set('end-date', String(end));
-      if (includePending) accountsUrl.searchParams.set('pending', '1');
+      const errors: string[] = [];
+      const imported: Array<{
+        externalId: string;
+        date: string;
+        description: string;
+        amount: number;
+        type: 'income' | 'expense';
+        category: 'Uncategorized';
+        source: string;
+      }> = [];
 
-      const auth = btoa(`${username}:${sfinPw}`);
-      const dataRes = await fetch(accountsUrl.toString(), {
-        method: 'GET',
-        headers: { 'Authorization': `Basic ${auth}` },
-      });
-      if (!dataRes.ok) {
-        const txt = await dataRes.text();
-        return json({ error: `SimpleFIN fetch failed: ${dataRes.status} ${dataRes.statusText}`, details: txt.slice(0, 500) }, 400);
+      const fetchChunk = async (start: number, endExclusive: number) => {
+        const accountsUrl = new URL(`${baseUrl}/accounts`);
+        accountsUrl.searchParams.set('start-date', String(start));
+        accountsUrl.searchParams.set('end-date', String(endExclusive));
+        if (includePending) accountsUrl.searchParams.set('pending', '1');
+
+        const dataRes = await fetch(accountsUrl.toString(), {
+          method: 'GET',
+          headers: { 'Authorization': `Basic ${auth}` },
+        });
+        if (!dataRes.ok) {
+          const txt = await dataRes.text();
+          throw new Error(`SimpleFIN fetch failed: ${dataRes.status} ${dataRes.statusText} (${start}..${endExclusive}) :: ${txt.slice(0, 200)}`);
+        }
+
+        const accountSet = await dataRes.json() as SimplefinAccountSet;
+        const chunkErrors = Array.isArray(accountSet.errors) ? accountSet.errors : [];
+        errors.push(...chunkErrors);
+        const accounts = Array.isArray(accountSet.accounts) ? accountSet.accounts : [];
+
+        for (const acc of accounts) {
+          const accName = acc?.name || 'Account';
+          const accId = acc?.id || 'unknown';
+          const txns = Array.isArray(acc?.transactions) ? acc.transactions : [];
+          for (const t of txns) {
+            const posted = typeof t.posted === 'number' && t.posted > 0
+              ? t.posted
+              : (typeof t.transacted_at === 'number' && t.transacted_at > 0 ? t.transacted_at : 0);
+
+            const isoDate = posted ? toIsoDateFromEpochSeconds(posted) : new Date().toISOString().slice(0, 10);
+            const amt = Number(t.amount);
+            const abs = Math.abs(Number.isFinite(amt) ? amt : 0);
+            if (!(abs > 0)) continue;
+
+            imported.push({
+              externalId: `simplefin:${accId}:${t.id}`,
+              date: isoDate,
+              description: `${t.description || 'Transaction'} (${accName})`,
+              amount: abs,
+              type: amt >= 0 ? 'income' : 'expense',
+              category: 'Uncategorized',
+              source: `SimpleFIN:${accId}`,
+            });
+          }
+        }
+      };
+
+      let start: number;
+      let chunks: Array<{ start: number; end: number }> = [];
+
+      if (requestedDaysBack > maxDaysPerRequest) {
+        // Backfill mode: chunk a larger explicit range into 60-day windows.
+        const globalStart = Math.max(0, end - (requestedDaysBack * secondsPerDay));
+        start = globalStart;
+        for (let s = globalStart; s < end; s += maxRangeSeconds) {
+          const e = Math.min(end, s + maxRangeSeconds);
+          chunks.push({ start: s, end: e });
+        }
+      } else {
+        // Incremental mode: honor lastSync (with overlap) but never exceed requestedDaysBack.
+        const maxRangeStart = end - (requestedDaysBack * secondsPerDay);
+        const overlapSeconds = 2 * secondsPerDay;
+        const incrementalStart = lastSync ? Math.max(0, lastSync - overlapSeconds) : 0;
+        start = lastSync ? Math.max(maxRangeStart, incrementalStart) : maxRangeStart;
+        chunks = [{ start, end }];
       }
 
-      const accountSet = await dataRes.json() as SimplefinAccountSet;
+      // Bridge guideline: 24 requests/day. Enforce hard cap here to avoid disabling tokens.
+      if (chunks.length > 24) {
+        return json({ error: `Requested range requires ${chunks.length} requests; max is 24 per day. Lower daysBack.` }, 400);
+      }
 
-      const errors = Array.isArray(accountSet.errors) ? accountSet.errors : [];
-      const accounts = Array.isArray(accountSet.accounts) ? accountSet.accounts : [];
-
-      const imported = accounts.flatMap(acc => {
-        const accName = acc?.name || 'Account';
-        const accId = acc?.id || 'unknown';
-        const txns = Array.isArray(acc?.transactions) ? acc.transactions : [];
-
-        return txns.map(t => {
-          const posted = typeof t.posted === 'number' && t.posted > 0
-            ? t.posted
-            : (typeof t.transacted_at === 'number' && t.transacted_at > 0 ? t.transacted_at : 0);
-
-          const isoDate = posted ? toIsoDateFromEpochSeconds(posted) : new Date().toISOString().slice(0, 10);
-          const amt = Number(t.amount);
-          const abs = Math.abs(Number.isFinite(amt) ? amt : 0);
-          const type = amt >= 0 ? 'income' : 'expense';
-          const description = `${t.description || 'Transaction'} (${accName})`;
-
-          return {
-            externalId: `simplefin:${accId}:${t.id}`,
-            date: isoDate,
-            description,
-            amount: abs,
-            type,
-            category: 'Uncategorized',
-            source: `SimpleFIN:${accId}`,
-          };
-        }).filter(x => x.amount > 0);
-      });
+      for (const c of chunks) {
+        await fetchChunk(c.start, c.end);
+      }
 
       // Persist last sync marker only after successful fetch + parse.
       const updated: SyncData = { ...existing, simplefinLastSyncEpoch: end, lastUpdated: new Date().toISOString() };
@@ -272,7 +316,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         success: true,
         errors,
         transactions: imported,
-        meta: { daysBack, includePending, accounts: accounts.length, start, end, lastSync },
+        meta: { requestedDaysBack, includePending, start, end, lastSync, chunks: chunks.length },
       });
     }
 

@@ -196,14 +196,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ open, onClose }) => 
             </div>
 
             <div style={{ display: 'grid', gap: '0.5rem', marginTop: '1rem' }}>
-              <label style={{ fontWeight: 900, fontSize: '0.8rem' }}>Sync Range (days back, max 60)</label>
+              <label style={{ fontWeight: 900, fontSize: '0.8rem' }}>Sync Range (days back, max 360)</label>
               <input
                 type="number"
                 className="neo-input"
                 min={1}
-                max={60}
+                max={360}
                 value={simplefinDaysBack}
-                onChange={e => setSimplefinDaysBack(Math.max(1, Math.min(60, Number(e.target.value) || 60)))}
+                onChange={e => setSimplefinDaysBack(Math.max(1, Math.min(360, Number(e.target.value) || 60)))}
                 disabled={!user || simplefinBusy || !simplefinConnected}
               />
               <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontWeight: 900, fontSize: '0.85rem' }}>
