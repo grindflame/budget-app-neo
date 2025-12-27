@@ -14,6 +14,8 @@ export interface Transaction {
   debtAccountId?: string;
   assetAccountId?: string; // Link to Asset
   recurringId?: string; // If generated from a recurring rule
+  source?: string;
+  externalId?: string;
 }
 
 export interface DebtAccount {
@@ -638,7 +640,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         })
       });
       if (!res.ok) throw new Error(await res.text());
-      const data = await res.json() as { transactions?: ImportedTransaction[]; errors?: string[] };
+      const data = await res.json() as { transactions?: Array<ImportedTransaction & { externalId?: string }>; errors?: string[] };
       const incoming = Array.isArray(data.transactions) ? data.transactions : [];
       const errors = Array.isArray(data.errors) ? data.errors : [];
 
@@ -647,6 +649,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return `${t.date}|${String(t.type)}|${amt.toFixed(2)}|${(t.description || '').trim().toLowerCase()}|${(t.category || '').trim().toLowerCase()}`;
       };
 
+      const existingExternalIds = new Set(transactions.map(t => t.externalId).filter((x): x is string => Boolean(x)));
       const existing = new Set(transactions.map(t => fingerprint({
         date: t.date,
         description: t.description,
@@ -656,6 +659,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       })));
 
       const toAdd = incoming.filter(t => {
+        if (t.externalId && existingExternalIds.has(t.externalId)) return false;
         const fp = fingerprint({
           date: t.date,
           description: t.description,
@@ -665,6 +669,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         });
         if (existing.has(fp)) return false;
         existing.add(fp);
+        if (t.externalId) existingExternalIds.add(t.externalId);
         return true;
       }).map(t => ({
         id: crypto.randomUUID(),
@@ -675,7 +680,9 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         category: t.category || 'Uncategorized',
         debtAccountId: t.debtAccountId,
         assetAccountId: t.assetAccountId,
-        recurringId: t.recurringId
+        recurringId: t.recurringId,
+        source: t.source,
+        externalId: t.externalId
       }));
 
       if (toAdd.length > 0) {

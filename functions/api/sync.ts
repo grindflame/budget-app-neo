@@ -14,6 +14,7 @@ interface SyncData {
     lastUpdated: string;
     openRouterKey?: string;
     simplefinAccessUrl?: string;
+    simplefinLastSyncEpoch?: number;
 }
 
 interface SyncRequestBody {
@@ -70,7 +71,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             recurring,
             lastUpdated: new Date().toISOString(),
             openRouterKey: existing?.openRouterKey,
-            simplefinAccessUrl: existing?.simplefinAccessUrl
+            simplefinAccessUrl: existing?.simplefinAccessUrl,
+            simplefinLastSyncEpoch: existing?.simplefinLastSyncEpoch
         };
 
         await env.BUDGET_KV.put(key, JSON.stringify(data));

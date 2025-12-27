@@ -14,6 +14,7 @@ interface SyncData {
   lastUpdated: string;
   openRouterKey?: string;
   simplefinAccessUrl?: string;
+  simplefinLastSyncEpoch?: number;
 }
 
 async function hashPassword(pw: string): Promise<string> {
@@ -125,6 +126,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   return response({
     hasOpenRouterKey: Boolean(existing.openRouterKey),
     hasSimplefin: Boolean(existing.simplefinAccessUrl),
+    simplefinLastSyncEpoch: typeof existing.simplefinLastSyncEpoch === 'number' ? existing.simplefinLastSyncEpoch : null,
     lastUpdated: existing.lastUpdated
   });
 };

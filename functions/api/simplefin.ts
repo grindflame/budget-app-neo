@@ -14,6 +14,7 @@ interface SyncData {
   lastUpdated: string;
   openRouterKey?: string;
   simplefinAccessUrl?: string;
+  simplefinLastSyncEpoch?: number;
 }
 
 type Action =
@@ -138,6 +139,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     const user = await requireUser(env, email, password);
     return json({
       hasSimplefin: Boolean(user.simplefinAccessUrl),
+      simplefinLastSyncEpoch: typeof user.simplefinLastSyncEpoch === 'number' ? user.simplefinLastSyncEpoch : null,
       lastUpdated: user.lastUpdated,
     });
   } catch (e) {
@@ -167,7 +169,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const existing = await requireUser(env, email, password);
 
     if (action === 'disconnect') {
-      const updated: SyncData = { ...existing, simplefinAccessUrl: undefined, lastUpdated: new Date().toISOString() };
+      const updated: SyncData = { ...existing, simplefinAccessUrl: undefined, simplefinLastSyncEpoch: undefined, lastUpdated: new Date().toISOString() };
       await env.BUDGET_KV.put(`user:${email}`, JSON.stringify(updated));
       return json({ success: true });
     }
@@ -189,7 +191,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       // Validate we can parse credentials.
       splitAccessUrl(accessUrl);
 
-      const updated: SyncData = { ...existing, simplefinAccessUrl: accessUrl, lastUpdated: new Date().toISOString() };
+      // New access URL = new connection; reset last sync marker.
+      const updated: SyncData = { ...existing, simplefinAccessUrl: accessUrl, simplefinLastSyncEpoch: undefined, lastUpdated: new Date().toISOString() };
       await env.BUDGET_KV.put(`user:${email}`, JSON.stringify(updated));
       return json({ success: true });
     }
@@ -204,7 +207,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       const { baseUrl, username, password: sfinPw } = splitAccessUrl(accessUrl);
 
       const end = Math.floor(Date.now() / 1000);
-      const start = end - (daysBack * 24 * 60 * 60);
+      const maxRangeStart = end - (daysBack * 24 * 60 * 60);
+      const lastSync = typeof existing.simplefinLastSyncEpoch === 'number' && existing.simplefinLastSyncEpoch > 0
+        ? existing.simplefinLastSyncEpoch
+        : null;
+      // Use a small overlap so we catch late-posting transactions while still being incremental.
+      const overlapSeconds = 2 * 24 * 60 * 60;
+      const incrementalStart = lastSync ? Math.max(0, lastSync - overlapSeconds) : 0;
+      const start = lastSync ? Math.max(maxRangeStart, incrementalStart) : maxRangeStart;
 
       const accountsUrl = new URL(`${baseUrl}/accounts`);
       accountsUrl.searchParams.set('start-date', String(start));
@@ -243,6 +253,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           const description = `${t.description || 'Transaction'} (${accName})`;
 
           return {
+            externalId: `simplefin:${accId}:${t.id}`,
             date: isoDate,
             description,
             amount: abs,
@@ -253,11 +264,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         }).filter(x => x.amount > 0);
       });
 
+      // Persist last sync marker only after successful fetch + parse.
+      const updated: SyncData = { ...existing, simplefinLastSyncEpoch: end, lastUpdated: new Date().toISOString() };
+      await env.BUDGET_KV.put(`user:${email}`, JSON.stringify(updated));
+
       return json({
         success: true,
         errors,
         transactions: imported,
-        meta: { daysBack, includePending, accounts: accounts.length },
+        meta: { daysBack, includePending, accounts: accounts.length, start, end, lastSync },
       });
     }
 
