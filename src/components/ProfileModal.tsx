@@ -194,7 +194,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ open, onClose }) => 
     const result = await simplefinSync(simplefinDaysBack, simplefinIncludePending);
     setSimplefinBusy(false);
     const errText = result.errors.length ? `\n\nServer messages:\n- ${result.errors.join('\n- ')}` : '';
-    alert(`Imported ${result.added} new transactions from SimpleFIN.${errText}`);
+    const metaText = result.meta ? `\n\nMeta:\n${JSON.stringify(result.meta, null, 2)}` : '';
+    alert(`Fetched ${result.fetched} from SimpleFIN. Added ${result.added} new.${errText}${metaText}`);
   };
 
   const handleApplyAccountMap = () => {

@@ -96,7 +96,7 @@ interface BudgetContextType {
   simplefinStatus: () => Promise<boolean>;
   simplefinClaim: (setupTokenOrClaimUrl: string) => Promise<boolean>;
   simplefinDisconnect: () => Promise<boolean>;
-  simplefinSync: (daysBack?: number, includePending?: boolean) => Promise<{ added: number; errors: string[] }>;
+  simplefinSync: (daysBack?: number, includePending?: boolean) => Promise<{ added: number; fetched: number; errors: string[]; meta?: unknown }>;
 
   getSimplefinAccounts: () => Array<{ id: string; name: string; balance?: string; balanceDate?: number }>;
   getSimplefinAccountMap: () => Record<string, SimplefinAccountMapping>;
@@ -652,10 +652,10 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  const simplefinSync = async (daysBack = 60, includePending = false): Promise<{ added: number; errors: string[] }> => {
+  const simplefinSync = async (daysBack = 60, includePending = false): Promise<{ added: number; fetched: number; errors: string[]; meta?: unknown }> => {
     if (!user) {
       alert("Please log in first.");
-      return { added: 0, errors: ["Not logged in"] };
+      return { added: 0, fetched: 0, errors: ["Not logged in"] };
     }
     try {
       const res = await fetch('/api/simplefin?action=sync', {
@@ -673,10 +673,12 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         transactions?: Array<ImportedTransaction & { externalId?: string; simplefinAccountId?: string; simplefinAccountName?: string }>;
         accounts?: Array<{ id: string; name: string; balance?: string; balanceDate?: number }>;
         errors?: string[];
+        meta?: unknown;
       };
       const incoming = Array.isArray(data.transactions) ? data.transactions : [];
       const accounts = Array.isArray(data.accounts) ? data.accounts : [];
       const errors = Array.isArray(data.errors) ? data.errors : [];
+      const meta = data.meta;
 
       if (accounts.length > 0) {
         setSimplefinAccounts(prev => {
@@ -800,10 +802,10 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setTransactions(prev => [...prev, ...toAdd]);
       }
 
-      return { added: toAdd.length, errors };
+      return { added: toAdd.length, fetched: incoming.length, errors, meta };
     } catch (e) {
       alert("SimpleFIN sync failed: " + e);
-      return { added: 0, errors: [String(e)] };
+      return { added: 0, fetched: 0, errors: [String(e)] };
     }
   };
 
