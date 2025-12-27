@@ -62,13 +62,27 @@ function txKey(t) {
 }
 
 async function listPdfFiles(dirAbs) {
-  const entries = await fs.readdir(dirAbs, { withFileTypes: true });
-  return entries
-    .filter(e => e.isFile())
-    .map(e => e.name)
-    .filter(n => n.toLowerCase().endsWith('.pdf'))
-    .sort()
-    .map(n => path.join(dirAbs, n));
+  const out = [];
+
+  const walk = async (currentAbs) => {
+    const entries = await fs.readdir(currentAbs, { withFileTypes: true });
+    // Deterministic traversal order
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+
+    for (const e of entries) {
+      const abs = path.join(currentAbs, e.name);
+      if (e.isDirectory()) {
+        await walk(abs);
+        continue;
+      }
+      if (!e.isFile()) continue;
+      if (!e.name.toLowerCase().endsWith('.pdf')) continue;
+      out.push(abs);
+    }
+  };
+
+  await walk(dirAbs);
+  return out;
 }
 
 async function fetchJson(url, init) {

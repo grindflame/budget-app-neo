@@ -13,6 +13,7 @@ interface SyncData {
   recurring?: unknown[];
   lastUpdated: string;
   openRouterKey?: string;
+  simplefinAccessUrl?: string;
 }
 
 async function hashPassword(pw: string): Promise<string> {
@@ -123,6 +124,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
   return response({
     hasOpenRouterKey: Boolean(existing.openRouterKey),
+    hasSimplefin: Boolean(existing.simplefinAccessUrl),
     lastUpdated: existing.lastUpdated
   });
 };

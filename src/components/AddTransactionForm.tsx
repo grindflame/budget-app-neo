@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useBudget } from '../context/BudgetContext';
-import type { TransactionType } from '../context/BudgetContext';
+import type { Transaction, TransactionType } from '../context/BudgetContext';
 import { ArrowRight } from 'lucide-react';
+import { NeoSelect } from './NeoSelect';
 
 const CATEGORIES = [
     "Rent & Utilities",
@@ -22,43 +23,80 @@ const CATEGORIES = [
 ];
 
 export const AddTransactionForm: React.FC = () => {
+    return <TransactionForm />;
+};
+
+export type TransactionDraft = Omit<Transaction, 'id'>;
+
+export type TransactionFormMode = 'add' | 'edit';
+
+export interface TransactionFormProps {
+    mode?: TransactionFormMode;
+    initial?: Partial<TransactionDraft>;
+    onSubmitTransaction?: (t: TransactionDraft) => void;
+    onDone?: () => void;
+    submitLabel?: string;
+}
+
+export const TransactionForm: React.FC<TransactionFormProps> = ({
+    mode = 'add',
+    initial,
+    onSubmitTransaction,
+    onDone,
+    submitLabel,
+}) => {
     const { addTransaction, debts, assets } = useBudget();
-    const [desc, setDesc] = useState('');
-    const [amount, setAmount] = useState('');
-    const [type, setType] = useState<TransactionType | 'debt'>('expense');
-    const [category, setCategory] = useState(CATEGORIES[0]);
-    const [selectedDebtId, setSelectedDebtId] = useState('');
-    const [selectedAssetId, setSelectedAssetId] = useState('');
-    const [txDate, setTxDate] = useState(new Date().toISOString().split('T')[0]);
+
+    const [desc, setDesc] = useState(() => initial?.description ?? '');
+    const [amount, setAmount] = useState(() => (
+        typeof initial?.amount === 'number' && Number.isFinite(initial.amount)
+            ? String(initial.amount)
+            : ''
+    ));
+    const [type, setType] = useState<TransactionType | 'debt'>(() => {
+        const normalizedType = initial?.type === 'debt' ? 'debt-payment' : (initial?.type ?? 'expense');
+        return normalizedType as TransactionType;
+    });
+    const [category, setCategory] = useState(() => initial?.category ?? CATEGORIES[0]);
+    const [selectedDebtId, setSelectedDebtId] = useState(() => initial?.debtAccountId ?? '');
+    const [selectedAssetId, setSelectedAssetId] = useState(() => initial?.assetAccountId ?? '');
+    const [txDate, setTxDate] = useState(() => initial?.date ?? new Date().toISOString().split('T')[0]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!desc || !amount) return;
 
-        addTransaction({
+        const draft: TransactionDraft = {
             description: desc,
             amount: parseFloat(amount),
             type: type as TransactionType,
             category: category || 'Uncategorized',
             date: txDate,
             debtAccountId: selectedDebtId || undefined,
-            assetAccountId: selectedAssetId || undefined
-        });
-        setDesc('');
-        setAmount('');
-        // Keep category and date
+            assetAccountId: selectedAssetId || undefined,
+            recurringId: initial?.recurringId,
+        };
+
+        (onSubmitTransaction || addTransaction)(draft);
+
+        if (mode === 'add') {
+            setDesc('');
+            setAmount('');
+            // Keep category and date
+        }
+        onDone?.();
     };
 
     // Type selection logic
     const isDebtRelated = type === 'debt' || type === 'debt-payment' || type === 'debt-interest';
     const isAssetRelated = type === 'asset-deposit' || type === 'asset-growth';
 
-    // Reset linked fields if type changes
-    // (Optional but good UX. for now simple)
+    const title = mode === 'edit' ? 'Edit Entry' : 'Add New Entry';
+    const buttonLabel = submitLabel || (mode === 'edit' ? 'SAVE CHANGES' : 'ADD ENTRY');
 
     return (
         <div className="neo-box">
-            <h3 style={{ borderBottom: '4px solid black', paddingBottom: '0.5rem', marginBottom: '1.5rem' }}>Add New Entry</h3>
+            <h3 style={{ borderBottom: '4px solid black', paddingBottom: '0.5rem', marginBottom: '1.5rem' }}>{title}</h3>
             <form onSubmit={handleSubmit} className="form-stack">
                 <div className="form-group">
                     <label>DATE</label>
@@ -94,74 +132,72 @@ export const AddTransactionForm: React.FC = () => {
 
                 <div className="form-group">
                     <label>TYPE</label>
-                    <select
+                    <NeoSelect
                         className="neo-select"
-                        value={type}
-                        onChange={e => {
-                            setType(e.target.value as TransactionType);
+                        value={String(type)}
+                        onChange={(v) => {
+                            setType(v as TransactionType);
                             setSelectedDebtId('');
                             setSelectedAssetId('');
                         }}
-                    >
-                        <option value="expense">EXPENSE</option>
-                        <option value="income">INCOME</option>
-                        <option value="debt-payment">DEBT PAYMENT</option>
-                        <option value="debt-interest">DEBT INTEREST</option>
-                        <option value="asset-deposit">ASSET DEPOSIT (Savings)</option>
-                        <option value="asset-growth">ASSET GROWTH (Interest)</option>
-                    </select>
+                        options={[
+                            { value: 'expense', label: 'Expense' },
+                            { value: 'income', label: 'Income' },
+                            { value: 'debt-payment', label: 'Debt Payment' },
+                            { value: 'debt-interest', label: 'Debt Interest' },
+                            { value: 'asset-deposit', label: 'Asset Deposit (Savings)' },
+                            { value: 'asset-growth', label: 'Asset Growth (Interest)' },
+                        ]}
+                    />
                 </div>
 
                 {isDebtRelated && (
                     <div className="form-group">
                         <label>LINK TO DEBT ACCOUNT</label>
-                        <select
-                                className="neo-select"
+                        <NeoSelect
+                            className="neo-select"
                             style={{ border: '4px solid var(--neo-pink)' }}
                             value={selectedDebtId}
-                            onChange={e => setSelectedDebtId(e.target.value)}
-                        >
-                            <option value="">-- No Account / One-off --</option>
-                            {debts.map(d => (
-                                <option key={d.id} value={d.id}>{d.name}</option>
-                            ))}
-                        </select>
+                            onChange={setSelectedDebtId}
+                            options={[
+                                { value: '', label: '-- No Account / One-off --' },
+                                ...debts.map(d => ({ value: d.id, label: d.name })),
+                            ]}
+                        />
                     </div>
                 )}
 
                 {isAssetRelated && (
                     <div className="form-group">
                         <label>LINK TO ASSET ACCOUNT</label>
-                        <select
-                                className="neo-select"
+                        <NeoSelect
+                            className="neo-select"
                             style={{ border: '4px solid var(--neo-green)' }}
                             value={selectedAssetId}
-                            onChange={e => setSelectedAssetId(e.target.value)}
-                        >
-                            <option value="">-- No Account --</option>
-                            {assets.map(a => (
-                                <option key={a.id} value={a.id}>{a.name}</option>
-                            ))}
-                        </select>
+                            onChange={setSelectedAssetId}
+                            options={[
+                                { value: '', label: '-- No Account --' },
+                                ...assets.map(a => ({ value: a.id, label: a.name })),
+                            ]}
+                        />
                     </div>
                 )}
 
                 <div className="form-group">
                     <label>CATEGORY</label>
-                    <select
+                    <NeoSelect
                         className="neo-select"
                         value={category}
-                        onChange={e => setCategory(e.target.value)}
-                    >
-                        {CATEGORIES.map(c => (
-                            <option key={c} value={c}>{c.toUpperCase()}</option>
-                        ))}
-                        <option value="Uncategorized">UNCATEGORIZED</option>
-                    </select>
+                        onChange={setCategory}
+                        options={[
+                            ...CATEGORIES.map(c => ({ value: c, label: c })),
+                            { value: 'Uncategorized', label: 'Uncategorized' },
+                        ]}
+                    />
                 </div>
 
                 <button type="submit" className="neo-btn yellow" style={{ justifyContent: 'center', width: '100%', marginTop: '1rem' }}>
-                    ADD ENTRY <ArrowRight size={20} strokeWidth={3} />
+                    {buttonLabel} <ArrowRight size={20} strokeWidth={3} />
                 </button>
             </form>
             <style>{`

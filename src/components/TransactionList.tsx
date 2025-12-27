@@ -1,48 +1,23 @@
 import React, { useState } from 'react';
 import { useBudget } from '../context/BudgetContext';
 import type { Transaction, TransactionType } from '../context/BudgetContext';
-import { Trash2, Edit2, Save, X } from 'lucide-react';
+import { Trash2, Edit2 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
-
-const CATEGORIES = [
-    "Rent & Utilities",
-    "Food/Beverages/Groceries",
-    "Transportation/Gas",
-    "Personal Subscription",
-    "Business Subscription",
-    "Personal Purchase",
-    "Business Purchase",
-    "Entertainment/Fun",
-    "Interest / Fees",
-    "Health",
-    "Travel",
-    "Loan Payments",
-    "Donation",
-    "Coffee Shops",
-    "Other",
-    "Uncategorized"
-];
+import { TransactionModal } from './TransactionModal';
 
 interface TransactionListProps {
     transactions: Transaction[];
+    emptyLabel?: string;
 }
 
-export const TransactionList: React.FC<TransactionListProps> = ({ transactions }) => {
+export const TransactionList: React.FC<TransactionListProps> = ({ transactions, emptyLabel = 'NO DATA' }) => {
     const { deleteTransaction, editTransaction } = useBudget();
-    const [editingId, setEditingId] = useState<string | null>(null);
-    const [editForm, setEditForm] = useState<Omit<Transaction, 'id'>>({
-        date: '',
-        description: '',
-        amount: 0,
-        type: 'expense',
-        category: '',
-        recurringId: undefined
-    });
+    const [editingTx, setEditingTx] = useState<Transaction | null>(null);
 
     if (transactions.length === 0) {
         return (
             <div className="neo-box" style={{ textAlign: 'center', opacity: 0.7, minHeight: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <h3>NO DATA FOR THIS MONTH</h3>
+                <h3>{emptyLabel}</h3>
             </div>
         );
     }
@@ -51,28 +26,11 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions }
     const sorted = [...transactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     const startEdit = (t: Transaction) => {
-        setEditingId(t.id);
         const typ = t.type === 'debt' ? 'debt-payment' : t.type; // normalize legacy
-        setEditForm({
-            date: t.date,
-            description: t.description,
-            amount: t.amount,
-            type: typ,
-            category: t.category,
-            debtAccountId: t.debtAccountId,
-            assetAccountId: t.assetAccountId,
-            recurringId: t.recurringId
-        });
+        setEditingTx({ ...t, type: typ });
     };
 
-    const cancelEdit = () => {
-        setEditingId(null);
-    };
-
-    const saveEdit = (id: string) => {
-        editTransaction(id, editForm);
-        setEditingId(null);
-    };
+    const closeEdit = () => setEditingTx(null);
 
     const formatDate = (dateStr: string) => {
         try {
@@ -105,6 +63,15 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions }
     return (
         <div className="neo-box">
             <h3 style={{ borderBottom: '4px solid black', paddingBottom: '0.5rem', marginBottom: '1.5rem' }}>History</h3>
+            <TransactionModal
+                open={!!editingTx}
+                initial={editingTx || undefined}
+                onClose={closeEdit}
+                onSubmit={(updated) => {
+                    if (!editingTx) return;
+                    editTransaction(editingTx.id, updated);
+                }}
+            />
             <div className="table-responsive">
                 <table className="neo-table">
                     <thead>
@@ -118,115 +85,45 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions }
                     </thead>
                     <tbody>
                         {sorted.map(t => {
-                            const isEditing = editingId === t.id;
                             return (
-                                <tr key={t.id} className={isEditing ? 'row-editing' : 'row-hover'}>
-                                    {/* DATE */}
+                                <tr key={t.id} className="row-hover">
                                     <td>
-                                        {isEditing ? (
-                                            <input
-                                                className="edit-input"
-                                                type="date"
-                                                value={editForm.date}
-                                                onChange={e => setEditForm({ ...editForm, date: e.target.value })}
-                                            />
-                                        ) : (
-                                            formatDate(t.date)
-                                        )}
+                                        {formatDate(t.date)}
                                     </td>
 
-                                    {/* DESCRIPTION */}
                                     <td style={{ fontWeight: 'bold' }}>
-                                        {isEditing ? (
-                                            <input
-                                                className="edit-input"
-                                                value={editForm.description}
-                                                onChange={e => setEditForm({ ...editForm, description: e.target.value })}
-                                            />
-                                        ) : (
-                                            <div>
-                                                {t.description}
-                                                {t.debtAccountId && <span className="pill pink">Linked Debt</span>}
-                                                {t.assetAccountId && <span className="pill cyan">Linked Asset</span>}
-                                            </div>
-                                        )}
+                                        <div>
+                                            {t.description}
+                                            {t.debtAccountId && <span className="pill pink">Linked Debt</span>}
+                                            {t.assetAccountId && <span className="pill cyan">Linked Asset</span>}
+                                        </div>
                                     </td>
 
-                                    {/* CATEGORY */}
                                     <td>
-                                        {isEditing ? (
-                                            <select
-                                                className="neo-select neo-select-compact"
-                                                value={editForm.category}
-                                                onChange={e => setEditForm({ ...editForm, category: e.target.value })}
-                                            >
-                                                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                                                <option value="Uncategorized">Uncategorized</option>
-                                            </select>
-                                        ) : (
-                                            <span className="badge">{t.category}</span>
-                                        )}
+                                        <span className="badge">{t.category}</span>
                                     </td>
 
-                                    {/* AMOUNT & TYPE */}
                                     <td style={{ textAlign: 'right' }}>
-                                        {isEditing ? (
-                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '5px' }}>
-                                                <select
-                                                    className="neo-select neo-select-compact"
-                                                    style={{ width: '120px' }}
-                                                    value={editForm.type}
-                                                    onChange={e => setEditForm({ ...editForm, type: e.target.value as TransactionType })}
-                                                >
-                                                    <option value="expense">EXPENSE</option>
-                                                    <option value="income">INCOME</option>
-                                                    <option value="debt-payment">DEBT PMT</option>
-                                                    <option value="debt-interest">DEBT INT</option>
-                                                    <option value="asset-deposit">ASSET DEPOSIT</option>
-                                                    <option value="asset-growth">ASSET GROWTH</option>
-                                                </select>
-                                                <input
-                                                    className="edit-input"
-                                                    type="number"
-                                                    style={{ width: '80px', textAlign: 'right' }}
-                                                    value={editForm.amount}
-                                                    onChange={e => setEditForm({ ...editForm, amount: parseFloat(e.target.value) })}
-                                                />
-                                            </div>
-                                        ) : (
-                                            <div style={{
-                                                color: getTypeColor(t.type),
-                                                fontWeight: 900,
-                                                fontSize: '1.1rem',
-                                                display: 'flex', flexDirection: 'column', alignItems: 'flex-end'
-                                            }}>
-                                                <span>{t.type === 'expense' || t.type === 'debt-payment' || t.type === 'debt' || t.type === 'asset-deposit' ? '-' : '+'}${t.amount.toFixed(2)}</span>
-                                                <span style={{ fontSize: '0.6rem', opacity: 0.6 }}>{getTypeLabel(t.type)}</span>
-                                            </div>
-                                        )}
+                                        <div style={{
+                                            color: getTypeColor(t.type),
+                                            fontWeight: 900,
+                                            fontSize: '1.1rem',
+                                            display: 'flex', flexDirection: 'column', alignItems: 'flex-end'
+                                        }}>
+                                            <span>{t.type === 'expense' || t.type === 'debt-payment' || t.type === 'debt' || t.type === 'asset-deposit' ? '-' : '+'}${t.amount.toFixed(2)}</span>
+                                            <span style={{ fontSize: '0.6rem', opacity: 0.6 }}>{getTypeLabel(t.type)}</span>
+                                        </div>
                                     </td>
 
-                                    {/* ACTIONS */}
                                     <td style={{ textAlign: 'center' }}>
-                                        {isEditing ? (
-                                            <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
-                                                <button onClick={() => saveEdit(t.id)} className="action-btn save" title="Save">
-                                                    <Save size={16} />
-                                                </button>
-                                                <button onClick={cancelEdit} className="action-btn cancel" title="Cancel">
-                                                    <X size={16} />
-                                                </button>
-                                            </div>
-                                        ) : (
-                                            <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
-                                                <button onClick={() => startEdit(t)} className="action-btn edit" title="Edit">
-                                                    <Edit2 size={16} />
-                                                </button>
-                                                <button onClick={() => deleteTransaction(t.id)} className="action-btn delete" title="Delete">
-                                                    <Trash2 size={16} />
-                                                </button>
-                                            </div>
-                                        )}
+                                        <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
+                                            <button onClick={() => startEdit(t)} className="action-btn edit" title="Edit">
+                                                <Edit2 size={16} />
+                                            </button>
+                                            <button onClick={() => deleteTransaction(t.id)} className="action-btn delete" title="Delete">
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             );
@@ -259,9 +156,6 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions }
         }
         .row-hover:hover {
             background: #f0f0f0;
-        }
-        .row-editing {
-            background: #fffbe6;
         }
         .badge {
           background: #eee;
@@ -304,17 +198,6 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions }
         .action-btn.delete { background: white; color: red; border-color: red; box-shadow: 2px 2px 0 red; }
         .action-btn.delete:hover { background: #ffe6e6; }
         
-        .action-btn.save { background: var(--neo-green); color: black; }
-        .action-btn.cancel { background: white; }
-
-        .edit-input {
-            border: 2px solid black;
-            padding: 4px;
-            font-family: inherit;
-            font-size: 0.9rem;
-            width: 100%;
-            background: white;
-        }
       `}</style>
         </div>
     );

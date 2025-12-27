@@ -139,6 +139,76 @@ body {
   box-shadow: 3px 3px 0px var(--neo-black);
 }
 
+/* Custom NeoSelect (stylable dropdown menu) */
+.neo-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  text-align: left;
+}
+
+.neo-select-trigger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.neo-select-value {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.neo-select-menu {
+  background: var(--neo-white);
+  border: var(--border-width) solid var(--neo-black);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) 0px var(--neo-black);
+  z-index: 3000;
+  overflow: auto;
+}
+
+.neo-select-menu.neo-select-menu-compact {
+  box-shadow: 4px 4px 0px var(--neo-black);
+}
+
+.neo-select-option {
+  padding: 0.75rem 1rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  cursor: pointer;
+  background: var(--neo-white);
+  border-bottom: 2px solid #eee;
+}
+
+.neo-select-option:last-child {
+  border-bottom: none;
+}
+
+.neo-select-option:hover {
+  background: #f0f0f0;
+}
+
+.neo-select-option[aria-selected="true"] {
+  background: var(--neo-yellow);
+}
+
+.neo-select-option[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.neo-select-option.neo-select-option--active {
+  outline: 3px solid var(--neo-black);
+  outline-offset: -3px;
+}
+
+.neo-select-option.neo-select-option-compact {
+  padding: 0.4rem 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
 h1,
 h2,
 h3,

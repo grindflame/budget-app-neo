@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useBudget } from '../context/BudgetContext';
 import type { RecurringRule, TransactionType } from '../context/BudgetContext';
 import { Repeat, Plus, Trash2, Edit2, X } from 'lucide-react';
+import { NeoSelect } from './NeoSelect';
 
 const CATEGORIES = [
   "Rent & Utilities",
@@ -169,68 +170,69 @@ const RecurringModal: React.FC<{ onClose: () => void; defaultStartMonth: string 
                   </div>
                   <div>
                     <label style={{ fontWeight: 'bold' }}>TYPE</label>
-                    <select
+                    <NeoSelect
                       className="neo-select"
-                      value={form.type}
-                      onChange={e => {
-                        const v = e.target.value as TransactionType;
+                      value={String(form.type)}
+                      onChange={(v) => {
                         setForm(prev => ({
                           ...prev,
-                          type: v,
+                          type: v as TransactionType,
                           debtAccountId: undefined,
                           assetAccountId: undefined
                         }));
                       }}
-                    >
-                      <option value="expense">EXPENSE</option>
-                      <option value="income">INCOME</option>
-                      <option value="debt-payment">DEBT PAYMENT</option>
-                      <option value="debt-interest">DEBT INTEREST</option>
-                      <option value="asset-deposit">ASSET DEPOSIT</option>
-                      <option value="asset-growth">ASSET GROWTH</option>
-                    </select>
+                      options={[
+                        { value: 'expense', label: 'Expense' },
+                        { value: 'income', label: 'Income' },
+                        { value: 'debt-payment', label: 'Debt Payment' },
+                        { value: 'debt-interest', label: 'Debt Interest' },
+                        { value: 'asset-deposit', label: 'Asset Deposit' },
+                        { value: 'asset-growth', label: 'Asset Growth' },
+                      ]}
+                    />
                   </div>
                 </div>
 
                 {isDebtRelated && (
                   <div>
                     <label style={{ fontWeight: 'bold' }}>LINK TO DEBT ACCOUNT (OPTIONAL)</label>
-                    <select
+                    <NeoSelect
                       className="neo-select"
                       style={{ border: '4px solid var(--neo-pink)' }}
                       value={form.debtAccountId || ''}
-                      onChange={e => setForm(prev => ({ ...prev, debtAccountId: e.target.value || undefined }))}
-                    >
-                      <option value="">-- No Account --</option>
-                      {debts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                    </select>
+                      onChange={(v) => setForm(prev => ({ ...prev, debtAccountId: v || undefined }))}
+                      options={[
+                        { value: '', label: '-- No Account --' },
+                        ...debts.map(d => ({ value: d.id, label: d.name })),
+                      ]}
+                    />
                   </div>
                 )}
 
                 {isAssetRelated && (
                   <div>
                     <label style={{ fontWeight: 'bold' }}>LINK TO ASSET ACCOUNT (OPTIONAL)</label>
-                    <select
+                    <NeoSelect
                       className="neo-select"
                       style={{ border: '4px solid var(--neo-green)' }}
                       value={form.assetAccountId || ''}
-                      onChange={e => setForm(prev => ({ ...prev, assetAccountId: e.target.value || undefined }))}
-                    >
-                      <option value="">-- No Account --</option>
-                      {assets.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                    </select>
+                      onChange={(v) => setForm(prev => ({ ...prev, assetAccountId: v || undefined }))}
+                      options={[
+                        { value: '', label: '-- No Account --' },
+                        ...assets.map(a => ({ value: a.id, label: a.name })),
+                      ]}
+                    />
                   </div>
                 )}
 
                 <div>
                   <label style={{ fontWeight: 'bold' }}>CATEGORY</label>
-                  <select
+                  <NeoSelect
                     className="neo-select"
                     value={form.category}
-                    onChange={e => setForm(prev => ({ ...prev, category: e.target.value }))}
-                  >
-                    {CATEGORIES.map(c => <option key={c} value={c}>{c.toUpperCase()}</option>)}
-                  </select>
+                    onChange={(v) => setForm(prev => ({ ...prev, category: v }))}
+                    options={CATEGORIES.map(c => ({ value: c, label: c }))}
+                  />
                 </div>
 
                 <label style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', fontWeight: 900 }}>

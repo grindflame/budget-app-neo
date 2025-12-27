@@ -213,7 +213,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         userContent.push({ type: 'text', text: `File: ${name} (${mime}). Content:\n${payload}` });
       }
 
-      const requestBody: any = {
+      const requestBody: Record<string, unknown> = {
         model: modelForFile,
         response_format: { type: 'json_object' },
         temperature: 0.1,
@@ -235,7 +235,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${openRouterKey}`,
-          'HTTP-Referer': 'https://brutal-budget.pages.dev',
+          'HTTP-Referer': 'https://neo-budget.pages.dev',
           'X-Title': 'Brutal Budget Importer'
         },
         body: JSON.stringify(requestBody)
@@ -257,7 +257,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         continue;
       }
 
-      const data = await aiRes.json() as any;
+      type OpenRouterChatResponse = {
+        choices?: Array<{ message?: { content?: unknown } }>;
+      };
+      const data = await aiRes.json() as OpenRouterChatResponse;
       const content = data?.choices?.[0]?.message?.content;
       const raw = content;
       console.log('[IMPORT] Raw content preview (per-file):', name, typeof content === 'string' ? content.substring(0, 200) : JSON.stringify(content).substring(0, 200));
@@ -286,7 +289,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       // Ensure source is always populated for downstream UX.
       const withSource = parsed.map(t => ({
         ...t,
-        source: (t && typeof t === 'object' && (t as any).source) ? (t as any).source : name
+        source: (t && typeof t === 'object' && 'source' in t && typeof (t as { source?: unknown }).source === 'string' && (t as { source?: string }).source)
+          ? (t as { source: string }).source
+          : name
       }));
 
       allTransactions.push(...withSource);

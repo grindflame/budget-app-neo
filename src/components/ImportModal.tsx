@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { X, Sparkles, Download, FileUp, CheckCircle2 } from 'lucide-react';
 import { useBudget } from '../context/BudgetContext';
 import type { ImportedTransaction, TransactionType } from '../context/BudgetContext';
+import { NeoSelect } from './NeoSelect';
 
 interface ImportModalProps {
   open: boolean;
@@ -169,16 +170,13 @@ export const ImportModal: React.FC<ImportModalProps> = ({ open, onClose, categor
           )}
           <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
             <label style={{ fontWeight: 900, minWidth: '120px' }}>2) Model:</label>
-            <select 
-              className="neo-select" 
-              value={selectedModel} 
-              onChange={e => setSelectedModel(e.target.value)}
+            <NeoSelect
+              className="neo-select"
+              value={selectedModel}
+              onChange={setSelectedModel}
               style={{ flex: '1', minWidth: '300px' }}
-            >
-              {AVAILABLE_MODELS.map(m => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
-            </select>
+              options={AVAILABLE_MODELS.map(m => ({ value: m.value, label: m.label }))}
+            />
           </div>
           <button className="neo-btn pink" onClick={runImport} disabled={loading || files.length === 0} style={{ width: '200px', justifyContent: 'center' }}>
             {loading ? 'Processing...' : 'Run Import'}
@@ -242,19 +240,27 @@ export const ImportModal: React.FC<ImportModalProps> = ({ open, onClose, categor
                       <td><input className="edit-input" value={p.description || ''} onChange={e => updatePreview(idx, 'description', e.target.value)} /></td>
                       <td><input className="edit-input" type="number" value={p.amount ?? 0} onChange={e => updatePreview(idx, 'amount', parseFloat(e.target.value))} /></td>
                       <td>
-                        <select className="neo-select neo-select-compact" value={p.type || 'expense'} onChange={e => updatePreview(idx, 'type', e.target.value)}>
-                          <option value="expense">Expense</option>
-                          <option value="income">Income</option>
-                          <option value="debt-payment">Debt Payment</option>
-                          <option value="debt-interest">Debt Interest</option>
-                          <option value="asset-deposit">Asset Deposit</option>
-                          <option value="asset-growth">Asset Growth</option>
-                        </select>
+                        <NeoSelect
+                          className="neo-select neo-select-compact"
+                          value={String(p.type || 'expense')}
+                          onChange={(v) => updatePreview(idx, 'type', v)}
+                          options={[
+                            { value: 'expense', label: 'Expense' },
+                            { value: 'income', label: 'Income' },
+                            { value: 'debt-payment', label: 'Debt Payment' },
+                            { value: 'debt-interest', label: 'Debt Interest' },
+                            { value: 'asset-deposit', label: 'Asset Deposit' },
+                            { value: 'asset-growth', label: 'Asset Growth' },
+                          ]}
+                        />
                       </td>
                       <td>
-                        <select className="neo-select neo-select-compact" value={p.category || 'Uncategorized'} onChange={e => updatePreview(idx, 'category', e.target.value)}>
-                          {catOptions.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
+                        <NeoSelect
+                          className="neo-select neo-select-compact"
+                          value={String(p.category || 'Uncategorized')}
+                          onChange={(v) => updatePreview(idx, 'category', v)}
+                          options={catOptions.map(c => ({ value: c, label: c }))}
+                        />
                       </td>
                       <td>{p.source || '-'}</td>
                     </tr>

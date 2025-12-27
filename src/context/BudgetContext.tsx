@@ -88,6 +88,11 @@ interface BudgetContextType {
   updatePassword: (currentPw: string, newPw: string) => Promise<boolean>;
   saveOpenRouterKey: (key: string) => Promise<boolean>;
   aiImportStatements: (files: File[], categoriesHint: string[], model?: string) => Promise<ImportResult>;
+
+  simplefinStatus: () => Promise<boolean>;
+  simplefinClaim: (setupTokenOrClaimUrl: string) => Promise<boolean>;
+  simplefinDisconnect: () => Promise<boolean>;
+  simplefinSync: (daysBack?: number, includePending?: boolean) => Promise<{ added: number; errors: string[] }>;
 }
 
 export interface ImportedTransaction extends Omit<Transaction, 'id'> {
@@ -552,6 +557,138 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
+  const simplefinStatus = async (): Promise<boolean> => {
+    if (!user) {
+      alert("Please log in first.");
+      return false;
+    }
+    try {
+      const res = await fetch(`/api/simplefin?action=status&email=${encodeURIComponent(user.email)}&password=${encodeURIComponent(user.key)}`);
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json() as { hasSimplefin?: boolean };
+      return Boolean(data?.hasSimplefin);
+    } catch (e) {
+      alert("SimpleFIN status failed: " + e);
+      return false;
+    }
+  };
+
+  const simplefinClaim = async (setupTokenOrClaimUrl: string): Promise<boolean> => {
+    if (!user) {
+      alert("Please log in first.");
+      return false;
+    }
+    if (!setupTokenOrClaimUrl.trim()) return false;
+    try {
+      const res = await fetch('/api/simplefin?action=claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: user.email,
+          password: user.key,
+          token: setupTokenOrClaimUrl.trim(),
+        })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      alert("SimpleFIN connected");
+      return true;
+    } catch (e) {
+      alert("SimpleFIN connect failed: " + e);
+      return false;
+    }
+  };
+
+  const simplefinDisconnect = async (): Promise<boolean> => {
+    if (!user) {
+      alert("Please log in first.");
+      return false;
+    }
+    try {
+      const res = await fetch('/api/simplefin?action=disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: user.email,
+          password: user.key,
+        })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      alert("SimpleFIN disconnected");
+      return true;
+    } catch (e) {
+      alert("SimpleFIN disconnect failed: " + e);
+      return false;
+    }
+  };
+
+  const simplefinSync = async (daysBack = 60, includePending = false): Promise<{ added: number; errors: string[] }> => {
+    if (!user) {
+      alert("Please log in first.");
+      return { added: 0, errors: ["Not logged in"] };
+    }
+    try {
+      const res = await fetch('/api/simplefin?action=sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: user.email,
+          password: user.key,
+          daysBack,
+          includePending,
+        })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json() as { transactions?: ImportedTransaction[]; errors?: string[] };
+      const incoming = Array.isArray(data.transactions) ? data.transactions : [];
+      const errors = Array.isArray(data.errors) ? data.errors : [];
+
+      const fingerprint = (t: { date: string; description: string; amount: number; type: string; category: string }) => {
+        const amt = Number(t.amount) || 0;
+        return `${t.date}|${String(t.type)}|${amt.toFixed(2)}|${(t.description || '').trim().toLowerCase()}|${(t.category || '').trim().toLowerCase()}`;
+      };
+
+      const existing = new Set(transactions.map(t => fingerprint({
+        date: t.date,
+        description: t.description,
+        amount: t.amount,
+        type: t.type,
+        category: t.category
+      })));
+
+      const toAdd = incoming.filter(t => {
+        const fp = fingerprint({
+          date: t.date,
+          description: t.description,
+          amount: Number(t.amount) || 0,
+          type: String(t.type || ''),
+          category: t.category || 'Uncategorized'
+        });
+        if (existing.has(fp)) return false;
+        existing.add(fp);
+        return true;
+      }).map(t => ({
+        id: crypto.randomUUID(),
+        date: t.date || new Date().toISOString().slice(0, 10),
+        description: t.description || 'Imported',
+        amount: Number(t.amount) || 0,
+        type: (t.type as TransactionType) || 'expense',
+        category: t.category || 'Uncategorized',
+        debtAccountId: t.debtAccountId,
+        assetAccountId: t.assetAccountId,
+        recurringId: t.recurringId
+      }));
+
+      if (toAdd.length > 0) {
+        setTransactions(prev => [...prev, ...toAdd]);
+      }
+
+      return { added: toAdd.length, errors };
+    } catch (e) {
+      alert("SimpleFIN sync failed: " + e);
+      return { added: 0, errors: [String(e)] };
+    }
+  };
+
   const aiImportStatements = async (files: File[], categoriesHint: string[], model?: string): Promise<ImportResult> => {
     if (!user) throw new Error("Please log in first.");
     if (!files || files.length === 0) throw new Error("No files provided");
@@ -606,7 +743,11 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       isSyncing,
       updatePassword,
       saveOpenRouterKey,
-      aiImportStatements
+      aiImportStatements,
+      simplefinStatus,
+      simplefinClaim,
+      simplefinDisconnect,
+      simplefinSync
     }}>
       {children}
     </BudgetContext.Provider>

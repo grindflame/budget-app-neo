@@ -8,28 +8,31 @@ import { RecurringManager } from './RecurringManager';
 interface SummaryCardsProps {
     transactions: Transaction[];
     currentMonth: string; // YYYY-MM
+    viewMode?: 'month' | 'year';
+    currentYear?: string; // YYYY
 }
 
-export const SummaryCards: React.FC<SummaryCardsProps> = ({ transactions, currentMonth }) => {
+export const SummaryCards: React.FC<SummaryCardsProps> = ({ transactions, currentMonth, viewMode = 'month', currentYear }) => {
     const { categoryBudgets } = useBudget();
 
-    const monthTx = useMemo(() => {
-        return transactions.filter(t => t.date.startsWith(currentMonth));
-    }, [transactions, currentMonth]);
+    const periodKey = viewMode === 'year' ? (currentYear || currentMonth.slice(0, 4)) : currentMonth;
+    const tx = useMemo(() => {
+        return transactions.filter(t => t.date.startsWith(periodKey));
+    }, [transactions, periodKey]);
 
     const cashflow = useMemo(() => {
-        const income = monthTx.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
+        const income = tx.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
 
         // Expenses (Standard)
-        const expense = monthTx.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
+        const expense = tx.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
 
         // Debt Payments (Outflow)
-        const debtPayments = monthTx
+        const debtPayments = tx
             .filter(t => t.type === 'debt' || t.type === 'debt-payment')
             .reduce((acc, t) => acc + t.amount, 0);
 
         // Savings / Asset Deposits (Outflow from Cash, Inflow to Net Worth)
-        const savings = monthTx
+        const savings = tx
             .filter(t => t.type === 'asset-deposit')
             .reduce((acc, t) => acc + t.amount, 0);
 
@@ -41,12 +44,12 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ transactions, curren
         const debtPayoffRate = income > 0 ? debtPayments / income : 0;
 
         return { income, expense, debtPayments, savings, cashLeft, savingsRate, debtPayoffRate };
-    }, [monthTx]);
+    }, [tx]);
 
     const budgetHealth = useMemo(() => {
         // Only compare "expense" types to category budgets (keeps it intuitive)
         const spendByCategory: Record<string, number> = {};
-        monthTx
+        tx
             .filter(t => t.type === 'expense')
             .forEach(t => {
                 spendByCategory[t.category] = (spendByCategory[t.category] || 0) + t.amount;
@@ -54,7 +57,8 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ transactions, curren
 
         const overspent = Object.entries(spendByCategory)
             .map(([category, actual]) => {
-                const budget = categoryBudgets[category] ?? 0;
+                const budgetMultiplier = viewMode === 'year' ? 12 : 1;
+                const budget = (categoryBudgets[category] ?? 0) * budgetMultiplier;
                 const overBy = budget > 0 ? actual - budget : 0;
                 return { category, actual, budget, overBy };
             })
@@ -63,7 +67,7 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ transactions, curren
             .slice(0, 3);
 
         return { overspent };
-    }, [monthTx, categoryBudgets]);
+    }, [tx, categoryBudgets, viewMode]);
 
     // Standard Monthly Cards
     const cards = [
@@ -94,7 +98,9 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ transactions, curren
 
             {/* Budget Health */}
             <div className="neo-box" style={{ background: 'white' }}>
-                <h3 style={{ marginBottom: '1rem', borderBottom: '4px solid black', paddingBottom: '0.5rem' }}>BUDGET HEALTH (THIS MONTH)</h3>
+                <h3 style={{ marginBottom: '1rem', borderBottom: '4px solid black', paddingBottom: '0.5rem' }}>
+                    BUDGET HEALTH ({viewMode === 'year' ? 'THIS YEAR' : 'THIS MONTH'})
+                </h3>
 
                 <div className="health-grid">
                     <div className="health-stat">

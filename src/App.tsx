@@ -8,7 +8,7 @@ import { TransactionList } from './components/TransactionList';
 import { ImportModal } from './components/ImportModal';
 import { ProfileModal } from './components/ProfileModal';
 import { Upload, Download, Trash, ChevronLeft, ChevronRight, Wallet, Cloud, X, LogOut, RefreshCw, Sparkles, Settings2 } from 'lucide-react';
-import { format, addMonths, subMonths, parseISO } from 'date-fns';
+import { format, addMonths, subMonths, addYears, subYears, parseISO } from 'date-fns';
 
 const DEFAULT_CATEGORIES = [
   "Rent & Utilities",
@@ -100,21 +100,40 @@ const Dashboard: React.FC = () => {
   const [showSync, setShowSync] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [viewMode, setViewMode] = useState<'month' | 'year'>('month');
 
   // Use state for the selected month YYYY-MM
   const [currentMonth, setCurrentMonth] = useState(() => {
     return new Date().toISOString().slice(0, 7);
   });
+  const [currentYear, setCurrentYear] = useState(() => {
+    return new Date().toISOString().slice(0, 4);
+  });
 
   // Auto-generate any recurring entries for the month being viewed
   useEffect(() => {
-    generateRecurringForMonth(currentMonth);
-  }, [currentMonth, generateRecurringForMonth]);
+    if (viewMode === 'month') {
+      generateRecurringForMonth(currentMonth);
+      return;
+    }
+
+    // Year view: ensure each month has its recurring entries generated once.
+    for (let mi = 0; mi < 12; mi++) {
+      const yyyyMM = `${currentYear}-${String(mi + 1).padStart(2, '0')}`;
+      generateRecurringForMonth(yyyyMM);
+    }
+  }, [currentMonth, currentYear, viewMode, generateRecurringForMonth]);
 
   const handleMonthChange = (direction: 'prev' | 'next') => {
     const date = parseISO(currentMonth + '-01');
     const newDate = direction === 'next' ? addMonths(date, 1) : subMonths(date, 1);
     setCurrentMonth(format(newDate, 'yyyy-MM'));
+  };
+
+  const handleYearChange = (direction: 'prev' | 'next') => {
+    const date = parseISO(`${currentYear}-01-01`);
+    const newDate = direction === 'next' ? addYears(date, 1) : subYears(date, 1);
+    setCurrentYear(format(newDate, 'yyyy'));
   };
 
   const handleExport = () => {
@@ -123,7 +142,7 @@ const Dashboard: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `budget_data_${currentMonth}.csv`);
+    link.setAttribute('download', `budget_data_${viewMode === 'year' ? currentYear : currentMonth}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -140,6 +159,10 @@ const Dashboard: React.FC = () => {
   };
 
   const categoryHints = Array.from(new Set([...DEFAULT_CATEGORIES, ...Object.keys(categoryBudgets || {})]));
+
+  const filteredTx = viewMode === 'year'
+    ? transactions.filter(t => t.date.startsWith(currentYear))
+    : transactions.filter(t => t.date.startsWith(currentMonth));
 
   return (
     <div className="container">
@@ -208,26 +231,50 @@ const Dashboard: React.FC = () => {
 
       {/* MONTH NAVIGATOR */}
       <div className="month-nav">
-        <button className="neo-btn white icon-only" onClick={() => handleMonthChange('prev')}>
+        <button className="neo-btn white icon-only" onClick={() => (viewMode === 'year' ? handleYearChange('prev') : handleMonthChange('prev'))}>
           <ChevronLeft size={28} strokeWidth={4} />
         </button>
-        <h2>{format(parseISO(currentMonth + '-01'), 'MMMM yyyy')}</h2>
-        <button className="neo-btn white icon-only" onClick={() => handleMonthChange('next')}>
+        <div style={{ display: 'grid', gap: '0.5rem', justifyItems: 'center' }}>
+          <h2 style={{ margin: 0 }}>
+            {viewMode === 'year'
+              ? `FULL YEAR ${currentYear}`
+              : format(parseISO(currentMonth + '-01'), 'MMMM yyyy')}
+          </h2>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+            <button
+              className="neo-btn white"
+              style={{ padding: '0.4rem 0.7rem', fontSize: '0.8rem' }}
+              onClick={() => {
+                setViewMode(prev => {
+                  const next = prev === 'month' ? 'year' : 'month';
+                  if (next === 'year') setCurrentYear(currentMonth.slice(0, 4));
+                  return next;
+                });
+              }}
+            >
+              {viewMode === 'year' ? 'MONTH VIEW' : 'FULL YEAR'}
+            </button>
+          </div>
+        </div>
+        <button className="neo-btn white icon-only" onClick={() => (viewMode === 'year' ? handleYearChange('next') : handleMonthChange('next'))}>
           <ChevronRight size={28} strokeWidth={4} />
         </button>
       </div>
 
       {/* SUMMARY CARDS (Now includes Total Debts Button) */}
-      <SummaryCards transactions={transactions} currentMonth={currentMonth} />
+      <SummaryCards transactions={transactions} currentMonth={currentMonth} currentYear={currentYear} viewMode={viewMode} />
 
-      <BudgetCharts transactions={transactions} currentMonth={currentMonth} />
+      <BudgetCharts transactions={transactions} currentMonth={currentMonth} currentYear={currentYear} viewMode={viewMode} />
 
       <div className="content-grid">
         <div className="form-section">
           <AddTransactionForm />
         </div>
         <div className="list-section">
-          <TransactionList transactions={transactions.filter(t => t.date.startsWith(currentMonth))} />
+          <TransactionList
+            transactions={filteredTx}
+            emptyLabel={viewMode === 'year' ? 'NO DATA FOR THIS YEAR' : 'NO DATA FOR THIS MONTH'}
+          />
         </div>
       </div>
 

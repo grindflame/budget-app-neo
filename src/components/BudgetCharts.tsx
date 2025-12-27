@@ -11,13 +11,23 @@ import { subMonths, format, parseISO } from 'date-fns';
 interface BudgetChartsProps {
     transactions: Transaction[];
     currentMonth: string; // YYYY-MM used for rolling calc context
+    viewMode?: 'month' | 'year';
+    currentYear?: string; // YYYY
 }
 
-export const BudgetCharts: React.FC<BudgetChartsProps> = ({ transactions, currentMonth }) => {
+export const BudgetCharts: React.FC<BudgetChartsProps> = ({ transactions, currentMonth, viewMode = 'month', currentYear }) => {
     const { categoryBudgets } = useBudget();
+    const yearKey = currentYear || currentMonth.slice(0, 4);
 
     // 1. Calculate 3-Month Rolling Average Income
     const rollingAvgIncome = useMemo(() => {
+        if (viewMode === 'year') {
+            const totalIncome = transactions
+                .filter(t => t.date.startsWith(yearKey) && t.type === 'income')
+                .reduce((sum, t) => sum + t.amount, 0);
+            return totalIncome / 12;
+        }
+
         const today = parseISO(currentMonth + '-01');
         let totalIncome = 0;
         const monthsToCount = 3;
@@ -31,12 +41,32 @@ export const BudgetCharts: React.FC<BudgetChartsProps> = ({ transactions, curren
             totalIncome += monthIncome;
         }
         return totalIncome / monthsToCount;
-    }, [transactions, currentMonth]);
+    }, [transactions, currentMonth, viewMode, yearKey]);
 
 
     // 2. 6-Month Trends Data
     const trendData = useMemo(() => {
         const data = [];
+
+        if (viewMode === 'year') {
+            for (let mi = 0; mi < 12; mi++) {
+                const yyyy_mm = `${yearKey}-${String(mi + 1).padStart(2, '0')}`;
+                const d = parseISO(`${yyyy_mm}-01`);
+                const monthLabel = format(d, 'MMM');
+
+                const monthIncome = transactions
+                    .filter(t => t.date.startsWith(yyyy_mm) && t.type === 'income')
+                    .reduce((sum, t) => sum + t.amount, 0);
+
+                const monthOut = transactions
+                    .filter(t => t.date.startsWith(yyyy_mm) && t.type !== 'income')
+                    .reduce((sum, t) => sum + t.amount, 0);
+
+                data.push({ name: monthLabel, Income: monthIncome, Out: monthOut });
+            }
+            return data;
+        }
+
         const today = parseISO(currentMonth + '-01');
         // Last 6 months range
         for (let i = 5; i >= 0; i--) {
@@ -60,12 +90,14 @@ export const BudgetCharts: React.FC<BudgetChartsProps> = ({ transactions, curren
             });
         }
         return data;
-    }, [transactions, currentMonth]);
+    }, [transactions, currentMonth, viewMode, yearKey]);
 
     // 3. Category Breakdown with Targets
     const categoryData = useMemo(() => {
-        // Only current month
-        const relevantT = transactions.filter(t => t.date.startsWith(currentMonth) && t.type !== 'income');
+        const periodKey = viewMode === 'year' ? yearKey : currentMonth;
+        const budgetMultiplier = viewMode === 'year' ? 12 : 1;
+        // Only current period
+        const relevantT = transactions.filter(t => t.date.startsWith(periodKey) && t.type !== 'income');
 
         // Group by category
         const groups: Record<string, number> = {};
@@ -77,12 +109,12 @@ export const BudgetCharts: React.FC<BudgetChartsProps> = ({ transactions, curren
         const result = Object.keys(groups).map(cat => ({
             name: cat,
             actual: groups[cat],
-            budget: categoryBudgets[cat] || 0
+            budget: (categoryBudgets[cat] || 0) * budgetMultiplier
         }));
 
         // Sort by highest spend
         return result.sort((a, b) => b.actual - a.actual);
-    }, [transactions, currentMonth, categoryBudgets]);
+    }, [transactions, currentMonth, categoryBudgets, viewMode, yearKey]);
 
     return (
         <div className="charts-grid">
@@ -97,19 +129,25 @@ export const BudgetCharts: React.FC<BudgetChartsProps> = ({ transactions, curren
                     }}>
                         <TrendingUp size={32} color="black" />
                     </div>
-                    <h3 style={{ fontSize: '1.2rem', margin: 0 }}>3-MONTH ROLLING AVG INCOME</h3>
+                    <h3 style={{ fontSize: '1.2rem', margin: 0 }}>
+                        {viewMode === 'year' ? 'AVG MONTHLY INCOME (YEAR)' : '3-MONTH ROLLING AVG INCOME'}
+                    </h3>
                 </div>
                 <div style={{ fontSize: '3rem', fontWeight: 900 }}>
                     ${rollingAvgIncome.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
                 <p style={{ fontWeight: 'bold', opacity: 0.7, marginTop: '0.5rem' }}>
-                    Based on {format(parseISO(currentMonth + '-01'), 'MMMM')} and previous 2 months
+                    {viewMode === 'year'
+                        ? `Based on ${yearKey}`
+                        : `Based on ${format(parseISO(currentMonth + '-01'), 'MMMM')} and previous 2 months`}
                 </p>
             </div>
 
             {/* 6-Month Trend Chart */}
             <div className="neo-box" style={{ gridColumn: 'span 2' }}>
-                <h3 style={{ textAlign: 'center', marginBottom: '1.5rem' }}>6-MONTH TRENDS</h3>
+                <h3 style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+                    {viewMode === 'year' ? `12-MONTH TRENDS (${yearKey})` : '6-MONTH TRENDS'}
+                </h3>
                 <div style={{ width: '100%', height: 300 }}>
                     <ResponsiveContainer>
                         <BarChart data={trendData}>
@@ -137,7 +175,9 @@ export const BudgetCharts: React.FC<BudgetChartsProps> = ({ transactions, curren
                 <div className="neo-box" style={{ gridColumn: 'span 3', marginTop: '1rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
                         <Target size={28} />
-                        <h3 style={{ margin: 0 }}>CATEGORY SPEND vs TARGETS ({format(parseISO(currentMonth + '-01'), 'MMMM')})</h3>
+                        <h3 style={{ margin: 0 }}>
+                            CATEGORY SPEND vs TARGETS ({viewMode === 'year' ? yearKey : format(parseISO(currentMonth + '-01'), 'MMMM')})
+                        </h3>
                     </div>
 
                     <div style={{ width: '100%', height: 400 }}>

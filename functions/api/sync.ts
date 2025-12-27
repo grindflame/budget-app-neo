@@ -13,6 +13,7 @@ interface SyncData {
     recurring?: unknown[];
     lastUpdated: string;
     openRouterKey?: string;
+    simplefinAccessUrl?: string;
 }
 
 interface SyncRequestBody {
@@ -68,7 +69,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             categoryBudgets,
             recurring,
             lastUpdated: new Date().toISOString(),
-            openRouterKey: existing?.openRouterKey
+            openRouterKey: existing?.openRouterKey,
+            simplefinAccessUrl: existing?.simplefinAccessUrl
         };
 
         await env.BUDGET_KV.put(key, JSON.stringify(data));
