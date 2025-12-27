@@ -45,7 +45,7 @@ type SimplefinAccountSet = {
   }>;
 };
 
-type SimplefinAccountMeta = { id: string; name: string };
+type SimplefinAccountMeta = { id: string; name: string; balance?: string; balanceDate?: number };
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -263,7 +263,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           const accId = acc?.id || 'unknown';
           if (accId && !seenAccountIds.has(accId)) {
             seenAccountIds.add(accId);
-            accountsMeta.push({ id: accId, name: accName });
+            accountsMeta.push({
+              id: accId,
+              name: accName,
+              balance: typeof acc.balance === 'string' ? acc.balance : undefined,
+              balanceDate: typeof acc['balance-date'] === 'number' ? acc['balance-date'] : undefined,
+            });
           }
           const txns = Array.isArray(acc?.transactions) ? acc.transactions : [];
           for (const t of txns) {

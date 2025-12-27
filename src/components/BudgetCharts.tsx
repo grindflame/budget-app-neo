@@ -48,6 +48,16 @@ export const BudgetCharts: React.FC<BudgetChartsProps> = ({ transactions, curren
     const trendData = useMemo(() => {
         const data = [];
 
+      const chargedDebtIdsForPeriod = (yyyy_mm: string) => {
+        const txx = transactions.filter(t => t.date.startsWith(yyyy_mm));
+        return new Set(
+          txx
+            .filter(t => (t.type as string) === 'debt-charge' || t.type === 'debt-interest')
+            .map(t => t.debtAccountId)
+            .filter((x): x is string => Boolean(x))
+        );
+      };
+
         if (viewMode === 'year') {
             for (let mi = 0; mi < 12; mi++) {
                 const yyyy_mm = `${yearKey}-${String(mi + 1).padStart(2, '0')}`;
@@ -58,9 +68,18 @@ export const BudgetCharts: React.FC<BudgetChartsProps> = ({ transactions, curren
                     .filter(t => t.date.startsWith(yyyy_mm) && t.type === 'income')
                     .reduce((sum, t) => sum + t.amount, 0);
 
-                const monthOut = transactions
-                    .filter(t => t.date.startsWith(yyyy_mm) && t.type !== 'income')
-                    .reduce((sum, t) => sum + t.amount, 0);
+          const chargedDebtIds = chargedDebtIdsForPeriod(yyyy_mm);
+          const monthOut = transactions
+            .filter(t => {
+              if (!t.date.startsWith(yyyy_mm)) return false;
+              if (t.type === 'income') return false;
+              // Don't double-count credit-card payments if we already count charges/interest as spend.
+              if ((t.type === 'debt' || t.type === 'debt-payment') && t.debtAccountId && chargedDebtIds.has(t.debtAccountId)) return false;
+              // Ignore asset growth (not cash out) but count asset-deposit as an outflow from cash.
+              if (t.type === 'asset-growth') return false;
+              return true;
+            })
+            .reduce((sum, t) => sum + t.amount, 0);
 
                 data.push({ name: monthLabel, Income: monthIncome, Out: monthOut });
             }
@@ -79,9 +98,16 @@ export const BudgetCharts: React.FC<BudgetChartsProps> = ({ transactions, curren
                 .reduce((sum, t) => sum + t.amount, 0);
 
             // Net = Income - Expenses - Debt
-            const monthOut = transactions
-                .filter(t => t.date.startsWith(yyyy_mm) && t.type !== 'income')
-                .reduce((sum, t) => sum + t.amount, 0);
+        const chargedDebtIds = chargedDebtIdsForPeriod(yyyy_mm);
+        const monthOut = transactions
+          .filter(t => {
+            if (!t.date.startsWith(yyyy_mm)) return false;
+            if (t.type === 'income') return false;
+            if ((t.type === 'debt' || t.type === 'debt-payment') && t.debtAccountId && chargedDebtIds.has(t.debtAccountId)) return false;
+            if (t.type === 'asset-growth') return false;
+            return true;
+          })
+          .reduce((sum, t) => sum + t.amount, 0);
 
             data.push({
                 name: monthLabel,
@@ -96,8 +122,14 @@ export const BudgetCharts: React.FC<BudgetChartsProps> = ({ transactions, curren
     const categoryData = useMemo(() => {
         const periodKey = viewMode === 'year' ? yearKey : currentMonth;
         const budgetMultiplier = viewMode === 'year' ? 12 : 1;
-        // Only current period
-        const relevantT = transactions.filter(t => t.date.startsWith(periodKey) && t.type !== 'income');
+      // Only budget spend types (avoid pollution from transfers like debt payments and savings transfers).
+      const relevantT = transactions.filter(t => {
+        if (!t.date.startsWith(periodKey)) return false;
+        if (t.type === 'expense') return true;
+        if ((t.type as string) === 'debt-charge') return true;
+        if (t.type === 'debt-interest') return true;
+        return false;
+      });
 
         // Group by category
         const groups: Record<string, number> = {};

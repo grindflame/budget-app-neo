@@ -25,6 +25,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ open, onClose }) => 
     assets,
     addDebt,
     addAsset,
+    editDebt,
+    editAsset,
   } = useBudget();
   const [currentPw, setCurrentPw] = useState('');
   const [newPw, setNewPw] = useState('');
@@ -77,6 +79,31 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ open, onClose }) => 
     addAsset({ name, startingBalance: 0 });
     alert(`Created asset account "${name}" with $0 starting balance. Now select it in the dropdown to link.`);
     updateMapEntry(accountId, { kind: 'asset' });
+  };
+
+  const applyStartingBalanceFromSimplefin = (kind: 'debt' | 'asset', linkedId: string, reportedBalance: string | undefined, accountName: string) => {
+    if (!reportedBalance) {
+      alert('No balance available from SimpleFIN for this account.');
+      return;
+    }
+    const n = Number(reportedBalance);
+    if (!Number.isFinite(n)) {
+      alert('SimpleFIN balance is not a number.');
+      return;
+    }
+    const abs = Math.abs(n);
+    const ok = confirm(
+      `Set starting balance for "${accountName}" to $${abs.toFixed(2)}?\n\n` +
+      `This is useful for ongoing tracking, but if you imported historical transactions, you may need to reconcile (balances might not match perfectly).`
+    );
+    if (!ok) return;
+
+    if (kind === 'debt') {
+      editDebt(linkedId, { name: debts.find(d => d.id === linkedId)?.name || accountName, startingBalance: abs });
+    } else {
+      editAsset(linkedId, { name: assets.find(a => a.id === linkedId)?.name || accountName, startingBalance: abs });
+    }
+    alert('Starting balance updated.');
   };
 
   const handlePasswordSave = async (e: React.FormEvent) => {
@@ -305,11 +332,17 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ open, onClose }) => 
                     <div style={{ display: 'grid', gap: '0.75rem' }}>
                       {simplefinAccounts.map(a => {
                         const entry = simplefinAccountMap[a.id] || { kind: 'cash' as const };
+                        const bal = a.balance;
+                        const balDate = typeof a.balanceDate === 'number' ? new Date(a.balanceDate * 1000).toISOString().slice(0, 10) : null;
                         return (
                           <div key={a.id} style={{ border: '2px solid black', padding: '0.75rem' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
                               <div style={{ fontWeight: 900 }}>{a.name}</div>
                               <span className="badge">{a.id}</span>
+                            </div>
+                            <div style={{ marginTop: '0.35rem', fontSize: '0.85rem', opacity: 0.85, display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                              <span><b>Reported balance:</b> {typeof bal === 'string' ? bal : '—'}</span>
+                              <span><b>As-of:</b> {balDate || '—'}</span>
                             </div>
 
                             <div style={{ marginTop: '0.5rem', display: 'grid', gap: '0.5rem' }}>
@@ -338,6 +371,15 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ open, onClose }) => 
                                       ...debts.map(d => ({ value: d.id, label: d.name })),
                                     ]}
                                   />
+                                  {entry.debtAccountId && (
+                                    <button
+                                      type="button"
+                                      className="neo-btn white"
+                                      onClick={() => applyStartingBalanceFromSimplefin('debt', entry.debtAccountId || '', bal, a.name)}
+                                    >
+                                      Set Debt Starting Balance from SimpleFIN
+                                    </button>
+                                  )}
                                   <button type="button" className="neo-btn white" onClick={() => createAndLinkDebt(a.id, a.name)}>
                                     Create Debt Account
                                   </button>
@@ -356,6 +398,15 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ open, onClose }) => 
                                       ...assets.map(a2 => ({ value: a2.id, label: a2.name })),
                                     ]}
                                   />
+                                  {entry.assetAccountId && (
+                                    <button
+                                      type="button"
+                                      className="neo-btn white"
+                                      onClick={() => applyStartingBalanceFromSimplefin('asset', entry.assetAccountId || '', bal, a.name)}
+                                    >
+                                      Set Asset Starting Balance from SimpleFIN
+                                    </button>
+                                  )}
                                   <button type="button" className="neo-btn white" onClick={() => createAndLinkAsset(a.id, a.name)}>
                                     Create Asset Account
                                   </button>

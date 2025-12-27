@@ -23,34 +23,47 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ transactions, curren
     const cashflow = useMemo(() => {
         const income = tx.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
 
-        // Expenses (Standard)
-        const expense = tx.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
+    // Budget spend: cash expenses + credit card charges + debt interest
+    const spend = tx
+      .filter(t => t.type === 'expense' || (t.type as string) === 'debt-charge' || t.type === 'debt-interest')
+      .reduce((acc, t) => acc + t.amount, 0);
 
         // Debt Payments (Outflow)
         const debtPayments = tx
             .filter(t => t.type === 'debt' || t.type === 'debt-payment')
             .reduce((acc, t) => acc + t.amount, 0);
 
+    // If a debt account has charges in-period, treat its payments as transfers (avoid double-counting against spend).
+    const chargedDebtIds = new Set(
+      tx.filter(t => (t.type as string) === 'debt-charge' || t.type === 'debt-interest')
+        .map(t => t.debtAccountId)
+        .filter((x): x is string => Boolean(x))
+    );
+    const debtPaymentsLoanOnly = tx
+      .filter(t => (t.type === 'debt' || t.type === 'debt-payment') && (!t.debtAccountId || !chargedDebtIds.has(t.debtAccountId)))
+      .reduce((acc, t) => acc + t.amount, 0);
+
         // Savings / Asset Deposits (Outflow from Cash, Inflow to Net Worth)
         const savings = tx
             .filter(t => t.type === 'asset-deposit')
             .reduce((acc, t) => acc + t.amount, 0);
 
-        // "Cash Left" = Income - (Expenses + Debt Payments + Savings Transfers)
-        const cashLeft = income - (expense + debtPayments + savings);
+    // "Cash Left" = Income - (Budget Spend + Savings Transfers + Loan-only debt payments)
+    // Credit-card payments are not treated as spend if the underlying charges are already counted.
+    const cashLeft = income - (spend + savings + debtPaymentsLoanOnly);
 
         // Rates (avoid division by 0)
         const savingsRate = income > 0 ? savings / income : 0;
         const debtPayoffRate = income > 0 ? debtPayments / income : 0;
 
-        return { income, expense, debtPayments, savings, cashLeft, savingsRate, debtPayoffRate };
+    return { income, spend, debtPayments, savings, cashLeft, savingsRate, debtPayoffRate };
     }, [tx]);
 
     const budgetHealth = useMemo(() => {
         // Only compare "expense" types to category budgets (keeps it intuitive)
         const spendByCategory: Record<string, number> = {};
         tx
-            .filter(t => t.type === 'expense' || (t.type as string) === 'debt-charge')
+      .filter(t => t.type === 'expense' || (t.type as string) === 'debt-charge' || t.type === 'debt-interest')
             .forEach(t => {
                 spendByCategory[t.category] = (spendByCategory[t.category] || 0) + t.amount;
             });
@@ -72,7 +85,7 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ transactions, curren
     // Standard Monthly Cards
     const cards = [
         { label: 'INCOME', amount: cashflow.income, color: 'var(--neo-green)' },
-        { label: 'EXPENSES', amount: cashflow.expense, color: 'var(--neo-yellow)' },
+    { label: 'SPEND', amount: cashflow.spend, color: 'var(--neo-yellow)' },
         { label: 'DEBT PMTS', amount: cashflow.debtPayments, color: '#e0c3fc' }, // Light purple
         { label: 'SAVINGS', amount: cashflow.savings, color: '#9bf6ff' }, // Light cyan
         { label: 'CASH LEFT', amount: cashflow.cashLeft, color: cashflow.cashLeft >= 0 ? 'white' : '#ff6b6b' },

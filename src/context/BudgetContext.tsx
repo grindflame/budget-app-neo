@@ -98,7 +98,7 @@ interface BudgetContextType {
   simplefinDisconnect: () => Promise<boolean>;
   simplefinSync: (daysBack?: number, includePending?: boolean) => Promise<{ added: number; errors: string[] }>;
 
-  getSimplefinAccounts: () => Array<{ id: string; name: string }>;
+  getSimplefinAccounts: () => Array<{ id: string; name: string; balance?: string; balanceDate?: number }>;
   getSimplefinAccountMap: () => Record<string, SimplefinAccountMapping>;
   setSimplefinAccountMap: (next: Record<string, SimplefinAccountMapping>) => void;
   applySimplefinAccountMapToExisting: () => { updated: number };
@@ -165,7 +165,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isSyncing, setIsSyncing] = useState(false);
   const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [simplefinAccounts, setSimplefinAccounts] = useState<Array<{ id: string; name: string }>>(() => {
+  const [simplefinAccounts, setSimplefinAccounts] = useState<Array<{ id: string; name: string; balance?: string; balanceDate?: number }>>(() => {
     const saved = localStorage.getItem('simplefin_accounts');
     return saved ? JSON.parse(saved) : [];
   });
@@ -667,7 +667,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json() as {
         transactions?: Array<ImportedTransaction & { externalId?: string; simplefinAccountId?: string; simplefinAccountName?: string }>;
-        accounts?: Array<{ id: string; name: string }>;
+        accounts?: Array<{ id: string; name: string; balance?: string; balanceDate?: number }>;
         errors?: string[];
       };
       const incoming = Array.isArray(data.transactions) ? data.transactions : [];
@@ -679,6 +679,23 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           const byId = new Map(prev.map(a => [a.id, a]));
           for (const a of accounts) byId.set(a.id, a);
           return Array.from(byId.values());
+        });
+
+        // Heuristic default mapping to reduce manual work.
+        setSimplefinAccountMapState(prev => {
+          const next = { ...prev };
+          for (const a of accounts) {
+            if (next[a.id]) continue;
+            const n = (a.name || '').toLowerCase();
+            const kind: SimplefinAccountKind =
+              (n.includes('credit') || n.includes('card') || n.includes('visa') || n.includes('amex') || n.includes('mastercard') || n.includes('loan'))
+                ? 'debt'
+                : (n.includes('savings') || n.includes('investment') || n.includes('brokerage') || n.includes('401') || n.includes('ira'))
+                  ? 'asset'
+                  : 'cash';
+            next[a.id] = { kind };
+          }
+          return next;
         });
       }
 
@@ -786,7 +803,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  const getSimplefinAccounts = () => simplefinAccounts;
+      const getSimplefinAccounts = () => simplefinAccounts;
   const getSimplefinAccountMap = () => simplefinAccountMap;
   const setSimplefinAccountMap = (next: Record<string, SimplefinAccountMapping>) => {
     setSimplefinAccountMapState(next);
