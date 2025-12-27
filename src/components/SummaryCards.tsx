@@ -50,7 +50,7 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ transactions, curren
         // Only compare "expense" types to category budgets (keeps it intuitive)
         const spendByCategory: Record<string, number> = {};
         tx
-            .filter(t => t.type === 'expense')
+            .filter(t => t.type === 'expense' || (t.type as string) === 'debt-charge')
             .forEach(t => {
                 spendByCategory[t.category] = (spendByCategory[t.category] || 0) + t.amount;
             });

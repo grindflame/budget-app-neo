@@ -42,12 +42,16 @@ const DebtModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             .filter(t => t.type === 'debt-payment' || (t.type as string) === 'debt')
             .reduce((sum, t) => sum + t.amount, 0);
 
+        const charges = debtTx
+            .filter(t => (t.type as string) === 'debt-charge')
+            .reduce((sum, t) => sum + t.amount, 0);
+
         const interest = debtTx
             .filter(t => t.type === 'debt-interest')
             .reduce((sum, t) => sum + t.amount, 0);
 
-        const current = initial - payments + interest;
-        return { current, payments, interest };
+        const current = initial + charges - payments + interest;
+        return { current, payments, charges, interest };
     };
 
     return (
@@ -130,6 +134,7 @@ const DebtModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                                     <div>Started: <b>${d.startingBalance.toLocaleString()}</b></div>
                                     <div>Interest: <b style={{ color: 'var(--neo-pink)' }}>+${stats.interest.toLocaleString()}</b></div>
                                     <div>Payments: <b style={{ color: 'var(--neo-green)' }}>-${stats.payments.toLocaleString()}</b></div>
+                                    <div>Charges: <b style={{ color: 'var(--neo-pink)' }}>+${stats.charges.toLocaleString()}</b></div>
                                 </div>
                             </div>
                         );
@@ -165,8 +170,9 @@ export const DebtsManager: React.FC = () => {
         // Copy paste logic or reuse? Reuse logic is cleaner but for now let's just calc inline for summary
         const debtTx = transactions.filter(t => t.debtAccountId === d.id);
         const payments = debtTx.filter(t => t.type === 'debt-payment' || t.type === 'debt').reduce((s, t) => s + t.amount, 0);
+        const charges = debtTx.filter(t => (t.type as string) === 'debt-charge').reduce((s, t) => s + t.amount, 0);
         const interest = debtTx.filter(t => t.type === 'debt-interest').reduce((s, t) => s + t.amount, 0);
-        return acc + (d.startingBalance - payments + interest);
+        return acc + (d.startingBalance + charges - payments + interest);
     }, 0);
 
     return (

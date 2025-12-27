@@ -249,6 +249,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({ open, onClose, categor
                             { value: 'income', label: 'Income' },
                             { value: 'debt-payment', label: 'Debt Payment' },
                             { value: 'debt-interest', label: 'Debt Interest' },
+                            { value: 'debt-charge', label: 'Debt Charge' },
                             { value: 'asset-deposit', label: 'Asset Deposit' },
                             { value: 'asset-growth', label: 'Asset Growth' },
                           ]}

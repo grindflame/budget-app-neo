@@ -45,6 +45,7 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions, 
         if (t === 'expense') return '-';
         if (t === 'debt-payment' || t === 'debt') return 'DEBT PMT';
         if (t === 'debt-interest') return 'DEBT INT';
+        if ((t as string) === 'debt-charge') return 'DEBT CHG';
         if (t === 'asset-deposit') return 'SAVE';
         if (t === 'asset-growth') return 'GROW';
         return '';
@@ -55,6 +56,7 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions, 
         if (t === 'expense') return 'black';
         if (t === 'debt-payment' || t === 'debt') return 'var(--neo-pink)';
         if (t === 'debt-interest') return '#888'; // Grey/Pink?
+        if ((t as string) === 'debt-charge') return 'var(--neo-pink)';
         if (t === 'asset-deposit') return '#00F0FF'; // Cyan
         if (t === 'asset-growth') return 'var(--neo-green)';
         return 'black';
@@ -110,7 +112,7 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions, 
                                             fontSize: '1.1rem',
                                             display: 'flex', flexDirection: 'column', alignItems: 'flex-end'
                                         }}>
-                                            <span>{t.type === 'expense' || t.type === 'debt-payment' || t.type === 'debt' || t.type === 'asset-deposit' ? '-' : '+'}${t.amount.toFixed(2)}</span>
+                                            <span>{t.type === 'expense' || t.type === 'debt-payment' || t.type === 'debt' || (t.type as string) === 'debt-charge' || t.type === 'asset-deposit' ? '-' : '+'}${t.amount.toFixed(2)}</span>
                                             <span style={{ fontSize: '0.6rem', opacity: 0.6 }}>{getTypeLabel(t.type)}</span>
                                         </div>
                                     </td>

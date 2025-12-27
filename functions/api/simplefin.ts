@@ -45,6 +45,8 @@ type SimplefinAccountSet = {
   }>;
 };
 
+type SimplefinAccountMeta = { id: string; name: string };
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -202,7 +204,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         ? Math.floor(body.daysBack)
         : 60;
       // Bridge limits the range to 60 days per request. We'll chunk up to MAX_DAYS_BACK.
-      const MAX_DAYS_BACK = 360;
+      const MAX_DAYS_BACK = 366;
       const requestedDaysBack = Math.max(1, Math.min(MAX_DAYS_BACK, daysBackRaw));
       const includePending = Boolean(body.includePending);
 
@@ -222,8 +224,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         : null;
 
       const errors: string[] = [];
+      const accountsMeta: SimplefinAccountMeta[] = [];
+      const seenAccountIds = new Set<string>();
       const imported: Array<{
         externalId: string;
+        simplefinAccountId: string;
+        simplefinAccountName: string;
         date: string;
         description: string;
         amount: number;
@@ -255,6 +261,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         for (const acc of accounts) {
           const accName = acc?.name || 'Account';
           const accId = acc?.id || 'unknown';
+          if (accId && !seenAccountIds.has(accId)) {
+            seenAccountIds.add(accId);
+            accountsMeta.push({ id: accId, name: accName });
+          }
           const txns = Array.isArray(acc?.transactions) ? acc.transactions : [];
           for (const t of txns) {
             const posted = typeof t.posted === 'number' && t.posted > 0
@@ -268,6 +278,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
             imported.push({
               externalId: `simplefin:${accId}:${t.id}`,
+              simplefinAccountId: accId,
+              simplefinAccountName: accName,
               date: isoDate,
               description: `${t.description || 'Transaction'} (${accName})`,
               amount: abs,
@@ -315,6 +327,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       return json({
         success: true,
         errors,
+        accounts: accountsMeta,
         transactions: imported,
         meta: { requestedDaysBack, includePending, start, end, lastSync, chunks: chunks.length },
       });

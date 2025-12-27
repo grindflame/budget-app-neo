@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import Papa from 'papaparse';
 
-export type TransactionType = 'income' | 'expense' | 'debt-payment' | 'debt-interest' | 'asset-deposit' | 'asset-growth';
+export type TransactionType = 'income' | 'expense' | 'debt-payment' | 'debt-interest' | 'debt-charge' | 'asset-deposit' | 'asset-growth';
 
 export interface Transaction {
   id: string;
@@ -16,6 +16,8 @@ export interface Transaction {
   recurringId?: string; // If generated from a recurring rule
   source?: string;
   externalId?: string;
+  simplefinAccountId?: string;
+  simplefinAccountName?: string;
 }
 
 export interface DebtAccount {
@@ -95,7 +97,19 @@ interface BudgetContextType {
   simplefinClaim: (setupTokenOrClaimUrl: string) => Promise<boolean>;
   simplefinDisconnect: () => Promise<boolean>;
   simplefinSync: (daysBack?: number, includePending?: boolean) => Promise<{ added: number; errors: string[] }>;
+
+  getSimplefinAccounts: () => Array<{ id: string; name: string }>;
+  getSimplefinAccountMap: () => Record<string, SimplefinAccountMapping>;
+  setSimplefinAccountMap: (next: Record<string, SimplefinAccountMapping>) => void;
+  applySimplefinAccountMapToExisting: () => { updated: number };
 }
+
+type SimplefinAccountKind = 'cash' | 'debt' | 'asset' | 'ignore';
+type SimplefinAccountMapping = {
+  kind: SimplefinAccountKind;
+  debtAccountId?: string;
+  assetAccountId?: string;
+};
 
 export interface ImportedTransaction extends Omit<Transaction, 'id'> {
   source?: string;
@@ -151,12 +165,23 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isSyncing, setIsSyncing] = useState(false);
   const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [simplefinAccounts, setSimplefinAccounts] = useState<Array<{ id: string; name: string }>>(() => {
+    const saved = localStorage.getItem('simplefin_accounts');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [simplefinAccountMap, setSimplefinAccountMapState] = useState<Record<string, SimplefinAccountMapping>>(() => {
+    const saved = localStorage.getItem('simplefin_account_map');
+    return saved ? JSON.parse(saved) : {};
+  });
+
   useEffect(() => {
     localStorage.setItem('budget_transactions', JSON.stringify(transactions));
     localStorage.setItem('budget_debts', JSON.stringify(debts));
     localStorage.setItem('budget_assets', JSON.stringify(assets));
     localStorage.setItem('budget_limits', JSON.stringify(categoryBudgets));
     localStorage.setItem('budget_recurring', JSON.stringify(recurring));
+    localStorage.setItem('simplefin_accounts', JSON.stringify(simplefinAccounts));
+    localStorage.setItem('simplefin_account_map', JSON.stringify(simplefinAccountMap));
 
     // Auto-sync logic
     if (user) {
@@ -188,7 +213,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
       }, 2000);
     }
-  }, [transactions, user, debts, assets, categoryBudgets, recurring]);
+  }, [transactions, user, debts, assets, categoryBudgets, recurring, simplefinAccounts, simplefinAccountMap]);
 
   const addTransaction = (t: Omit<Transaction, 'id'>) => {
     const newTransaction = { ...t, id: crypto.randomUUID() };
@@ -640,9 +665,71 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         })
       });
       if (!res.ok) throw new Error(await res.text());
-      const data = await res.json() as { transactions?: Array<ImportedTransaction & { externalId?: string }>; errors?: string[] };
+      const data = await res.json() as {
+        transactions?: Array<ImportedTransaction & { externalId?: string; simplefinAccountId?: string; simplefinAccountName?: string }>;
+        accounts?: Array<{ id: string; name: string }>;
+        errors?: string[];
+      };
       const incoming = Array.isArray(data.transactions) ? data.transactions : [];
+      const accounts = Array.isArray(data.accounts) ? data.accounts : [];
       const errors = Array.isArray(data.errors) ? data.errors : [];
+
+      if (accounts.length > 0) {
+        setSimplefinAccounts(prev => {
+          const byId = new Map(prev.map(a => [a.id, a]));
+          for (const a of accounts) byId.set(a.id, a);
+          return Array.from(byId.values());
+        });
+      }
+
+      const categorizeByRules = (desc: string): string => {
+        const d = (desc || '').toLowerCase();
+        if (d.includes('interest') || d.includes('fee')) return 'Interest / Fees';
+        if (d.includes('rent') || d.includes('greystar') || d.includes('bilt rent')) return 'Rent & Utilities';
+        if (d.includes('doordash') || d.includes('uber eats') || d.includes('restaurant') || d.includes('chick-fil-a') || d.includes('taco') || d.includes('coffee') || d.includes('starbucks') || d.includes('cava') || d.includes('panera') || d.includes('wendy') || d.includes('mcdonald')) return 'Food/Beverages/Groceries';
+        if (d.includes('instacart') || d.includes('wegmans')) return 'Food/Beverages/Groceries';
+        if (d.includes('exxon') || d.includes('gas') || d.includes('shell')) return 'Transportation/Gas';
+        if (d.includes('spotify') || d.includes('visible') || d.includes('verizon') || d.includes('prime') || d.includes('namesilo') || d.includes('lookify') || d.includes('artlist')) return 'Personal Subscription';
+        if (d.includes('openai')) return 'Business Subscription';
+        if (d.includes('amazon') || d.includes('target')) return 'Personal Purchase';
+        return 'Other';
+      };
+
+      const applyMap = (t: ImportedTransaction & { externalId?: string; simplefinAccountId?: string; simplefinAccountName?: string }): ImportedTransaction & { externalId?: string; simplefinAccountId?: string; simplefinAccountName?: string } => {
+        const mapped = (t.simplefinAccountId && simplefinAccountMap[t.simplefinAccountId]) ? simplefinAccountMap[t.simplefinAccountId] : null;
+        if (mapped?.kind === 'ignore') return { ...t, amount: 0 };
+
+        // Ensure we always have a category.
+        const nextCategory = (!t.category || t.category === 'Uncategorized') ? categorizeByRules(t.description || '') : t.category;
+
+        if (mapped?.kind === 'debt') {
+          const d = (t.description || '').toLowerCase();
+          const isInterest = d.includes('interest') || d.includes('fee');
+          return {
+            ...t,
+            category: isInterest ? 'Interest / Fees' : nextCategory,
+            type: isInterest
+              ? 'debt-interest'
+              : (t.type === 'income' ? 'debt-payment' : 'debt-charge'),
+            debtAccountId: mapped.debtAccountId || t.debtAccountId,
+          };
+        }
+
+        if (mapped?.kind === 'asset') {
+          const d = (t.description || '').toLowerCase();
+          const isGrowth = d.includes('interest') || d.includes('dividend') || d.includes('yield') || d.includes('monthly interest');
+          return {
+            ...t,
+            category: isGrowth ? 'Interest / Fees' : nextCategory,
+            type: isGrowth
+              ? 'asset-growth'
+              : (t.type === 'income' ? 'asset-deposit' : 'expense'),
+            assetAccountId: mapped.assetAccountId || t.assetAccountId,
+          };
+        }
+
+        return { ...t, category: nextCategory };
+      };
 
       const fingerprint = (t: { date: string; description: string; amount: number; type: string; category: string }) => {
         const amt = Number(t.amount) || 0;
@@ -658,7 +745,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         category: t.category
       })));
 
-      const toAdd = incoming.filter(t => {
+      const toAdd = incoming.map(applyMap).filter(t => {
+        if ((t.amount ?? 0) <= 0) return false; // ignore mapped-to-zero or invalid
         if (t.externalId && existingExternalIds.has(t.externalId)) return false;
         const fp = fingerprint({
           date: t.date,
@@ -682,7 +770,9 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         assetAccountId: t.assetAccountId,
         recurringId: t.recurringId,
         source: t.source,
-        externalId: t.externalId
+        externalId: t.externalId,
+        simplefinAccountId: t.simplefinAccountId,
+        simplefinAccountName: t.simplefinAccountName
       }));
 
       if (toAdd.length > 0) {
@@ -694,6 +784,71 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       alert("SimpleFIN sync failed: " + e);
       return { added: 0, errors: [String(e)] };
     }
+  };
+
+  const getSimplefinAccounts = () => simplefinAccounts;
+  const getSimplefinAccountMap = () => simplefinAccountMap;
+  const setSimplefinAccountMap = (next: Record<string, SimplefinAccountMapping>) => {
+    setSimplefinAccountMapState(next);
+  };
+
+  const applySimplefinAccountMapToExisting = (): { updated: number } => {
+    const categorizeByRules = (desc: string): string => {
+      const d = (desc || '').toLowerCase();
+      if (d.includes('interest') || d.includes('fee')) return 'Interest / Fees';
+      if (d.includes('rent') || d.includes('greystar') || d.includes('bilt rent')) return 'Rent & Utilities';
+      if (d.includes('doordash') || d.includes('uber eats') || d.includes('restaurant') || d.includes('chick-fil-a') || d.includes('taco') || d.includes('coffee') || d.includes('starbucks') || d.includes('cava') || d.includes('panera') || d.includes('wendy') || d.includes('mcdonald')) return 'Food/Beverages/Groceries';
+      if (d.includes('instacart') || d.includes('wegmans')) return 'Food/Beverages/Groceries';
+      if (d.includes('exxon') || d.includes('gas') || d.includes('shell')) return 'Transportation/Gas';
+      if (d.includes('spotify') || d.includes('visible') || d.includes('verizon') || d.includes('prime') || d.includes('namesilo') || d.includes('lookify') || d.includes('artlist')) return 'Personal Subscription';
+      if (d.includes('openai')) return 'Business Subscription';
+      if (d.includes('amazon') || d.includes('target')) return 'Personal Purchase';
+      return 'Other';
+    };
+
+    let updated = 0;
+    setTransactions(prev => prev.map(t => {
+      if (!t.simplefinAccountId) return t;
+      const mapped = simplefinAccountMap[t.simplefinAccountId];
+      if (!mapped) {
+        if (!t.category || t.category === 'Uncategorized') {
+          updated++;
+          return { ...t, category: categorizeByRules(t.description || '') };
+        }
+        return t;
+      }
+      if (mapped.kind === 'ignore') {
+        updated++;
+        return { ...t, category: t.category || 'Uncategorized' }; // leave; user can delete if desired
+      }
+
+      const nextCategory = (!t.category || t.category === 'Uncategorized') ? categorizeByRules(t.description || '') : t.category;
+      if (mapped.kind === 'debt') {
+        const d = (t.description || '').toLowerCase();
+        const isInterest = d.includes('interest') || d.includes('fee');
+        const nextType: TransactionType =
+          isInterest ? 'debt-interest' :
+            (t.type === 'income' ? 'debt-payment' : (t.type === 'expense' ? 'debt-charge' : (t.type as TransactionType)));
+        updated++;
+        return { ...t, category: isInterest ? 'Interest / Fees' : nextCategory, type: nextType, debtAccountId: mapped.debtAccountId || t.debtAccountId };
+      }
+      if (mapped.kind === 'asset') {
+        const d = (t.description || '').toLowerCase();
+        const isGrowth = d.includes('interest') || d.includes('dividend') || d.includes('yield') || d.includes('monthly interest');
+        const nextType: TransactionType =
+          isGrowth ? 'asset-growth' :
+            (t.type === 'income' ? 'asset-deposit' : (t.type as TransactionType));
+        updated++;
+        return { ...t, category: isGrowth ? 'Interest / Fees' : nextCategory, type: nextType, assetAccountId: mapped.assetAccountId || t.assetAccountId };
+      }
+
+      if (!t.category || t.category === 'Uncategorized') {
+        updated++;
+        return { ...t, category: nextCategory };
+      }
+      return t;
+    }));
+    return { updated };
   };
 
   const aiImportStatements = async (files: File[], categoriesHint: string[], model?: string): Promise<ImportResult> => {
@@ -754,7 +909,11 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       simplefinStatus,
       simplefinClaim,
       simplefinDisconnect,
-      simplefinSync
+      simplefinSync,
+      getSimplefinAccounts,
+      getSimplefinAccountMap,
+      setSimplefinAccountMap,
+      applySimplefinAccountMapToExisting
     }}>
       {children}
     </BudgetContext.Provider>

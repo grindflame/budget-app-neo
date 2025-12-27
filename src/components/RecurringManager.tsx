@@ -43,7 +43,7 @@ const RecurringModal: React.FC<{ onClose: () => void; defaultStartMonth: string 
     assetAccountId: undefined
   });
 
-  const isDebtRelated = form.type === 'debt-payment' || form.type === 'debt-interest';
+  const isDebtRelated = form.type === 'debt-payment' || form.type === 'debt-interest' || (form.type as string) === 'debt-charge';
   const isAssetRelated = form.type === 'asset-deposit' || form.type === 'asset-growth';
 
   const resetForm = () => {
@@ -186,6 +186,7 @@ const RecurringModal: React.FC<{ onClose: () => void; defaultStartMonth: string 
                         { value: 'income', label: 'Income' },
                         { value: 'debt-payment', label: 'Debt Payment' },
                         { value: 'debt-interest', label: 'Debt Interest' },
+                          { value: 'debt-charge', label: 'Debt Charge' },
                         { value: 'asset-deposit', label: 'Asset Deposit' },
                         { value: 'asset-growth', label: 'Asset Growth' },
                       ]}

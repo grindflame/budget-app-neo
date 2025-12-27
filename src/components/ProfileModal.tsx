@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { X, KeyRound, ShieldCheck, Link2, RefreshCw, Unlink2 } from 'lucide-react';
 import { useBudget } from '../context/BudgetContext';
+import { NeoSelect } from './NeoSelect';
 
 interface ProfileModalProps {
   open: boolean;
@@ -8,7 +9,23 @@ interface ProfileModalProps {
 }
 
 export const ProfileModal: React.FC<ProfileModalProps> = ({ open, onClose }) => {
-  const { user, updatePassword, saveOpenRouterKey, simplefinStatus, simplefinClaim, simplefinDisconnect, simplefinSync } = useBudget();
+  const {
+    user,
+    updatePassword,
+    saveOpenRouterKey,
+    simplefinStatus,
+    simplefinClaim,
+    simplefinDisconnect,
+    simplefinSync,
+    getSimplefinAccounts,
+    getSimplefinAccountMap,
+    setSimplefinAccountMap,
+    applySimplefinAccountMapToExisting,
+    debts,
+    assets,
+    addDebt,
+    addAsset,
+  } = useBudget();
   const [currentPw, setCurrentPw] = useState('');
   const [newPw, setNewPw] = useState('');
   const [openRouterKey, setOpenRouterKey] = useState(user?.openRouterKey || '');
@@ -18,6 +35,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ open, onClose }) => 
   const [simplefinDaysBack, setSimplefinDaysBack] = useState<number>(60);
   const [simplefinIncludePending, setSimplefinIncludePending] = useState<boolean>(false);
   const [simplefinBusy, setSimplefinBusy] = useState<boolean>(false);
+  const [showSimplefinAccounts, setShowSimplefinAccounts] = useState<boolean>(false);
 
   if (!open) return null;
 
@@ -30,6 +48,36 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ open, onClose }) => 
     })();
     return () => { cancelled = true; };
   }, [user, simplefinStatus, open]);
+
+  const simplefinAccounts = useMemo(() => getSimplefinAccounts(), [getSimplefinAccounts, open]);
+  const simplefinAccountMap = useMemo(() => getSimplefinAccountMap(), [getSimplefinAccountMap, open]);
+
+  const updateMapEntry = (accountId: string, next: { kind?: 'cash' | 'debt' | 'asset' | 'ignore'; debtAccountId?: string; assetAccountId?: string }) => {
+    const prev = simplefinAccountMap[accountId] || { kind: 'cash' as const };
+    const merged = {
+      ...prev,
+      ...next,
+      // clean irrelevant link fields
+      debtAccountId: (next.kind && next.kind !== 'debt') ? undefined : (next.debtAccountId ?? prev.debtAccountId),
+      assetAccountId: (next.kind && next.kind !== 'asset') ? undefined : (next.assetAccountId ?? prev.assetAccountId),
+    };
+    setSimplefinAccountMap({ ...simplefinAccountMap, [accountId]: merged });
+  };
+
+  const createAndLinkDebt = (accountId: string, accountName: string) => {
+    const name = `Debt: ${accountName}`;
+    addDebt({ name, startingBalance: 0 });
+    // We can't know the new ID synchronously, so ask user to select it after creation.
+    alert(`Created debt account "${name}" with $0 starting balance. Now select it in the dropdown to link.`);
+    updateMapEntry(accountId, { kind: 'debt' });
+  };
+
+  const createAndLinkAsset = (accountId: string, accountName: string) => {
+    const name = `Asset: ${accountName}`;
+    addAsset({ name, startingBalance: 0 });
+    alert(`Created asset account "${name}" with $0 starting balance. Now select it in the dropdown to link.`);
+    updateMapEntry(accountId, { kind: 'asset' });
+  };
 
   const handlePasswordSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,6 +123,11 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ open, onClose }) => 
     setSimplefinBusy(false);
     const errText = result.errors.length ? `\n\nServer messages:\n- ${result.errors.join('\n- ')}` : '';
     alert(`Imported ${result.added} new transactions from SimpleFIN.${errText}`);
+  };
+
+  const handleApplyAccountMap = () => {
+    const r = applySimplefinAccountMapToExisting();
+    alert(`Applied mapping/categorization to ${r.updated} existing SimpleFIN transactions.`);
   };
 
   return (
@@ -196,14 +249,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ open, onClose }) => 
             </div>
 
             <div style={{ display: 'grid', gap: '0.5rem', marginTop: '1rem' }}>
-              <label style={{ fontWeight: 900, fontSize: '0.8rem' }}>Sync Range (days back, max 360)</label>
+              <label style={{ fontWeight: 900, fontSize: '0.8rem' }}>Sync Range (days back, max 366)</label>
               <input
                 type="number"
                 className="neo-input"
                 min={1}
-                max={360}
+                max={366}
                 value={simplefinDaysBack}
-                onChange={e => setSimplefinDaysBack(Math.max(1, Math.min(360, Number(e.target.value) || 60)))}
+                onChange={e => setSimplefinDaysBack(Math.max(1, Math.min(366, Number(e.target.value) || 60)))}
                 disabled={!user || simplefinBusy || !simplefinConnected}
               />
               <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontWeight: 900, fontSize: '0.85rem' }}>
@@ -224,6 +277,98 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ open, onClose }) => 
               >
                 <RefreshCw size={16} /> {simplefinBusy ? 'Syncing...' : 'Sync from SimpleFIN'}
               </button>
+
+              <button
+                type="button"
+                className="neo-btn white"
+                disabled={!user}
+                onClick={() => setShowSimplefinAccounts(v => !v)}
+              >
+                {showSimplefinAccounts ? 'Hide' : 'Show'} SimpleFIN Account Types
+              </button>
+
+              {showSimplefinAccounts && (
+                <div className="neo-box" style={{ background: 'white', border: '3px solid black' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <strong>Account Mapping</strong>
+                    <button type="button" className="neo-btn" onClick={handleApplyAccountMap} style={{ background: '#00F0FF' }}>
+                      Apply Mapping to Existing
+                    </button>
+                  </div>
+                  <p style={{ fontSize: '0.85rem', opacity: 0.8 }}>
+                    SimpleFIN doesn’t provide “account type” reliably, so we map each account to cash/debt/asset/ignore. Debt accounts turn charges into “debt-charge” and payments into “debt-payment”.
+                  </p>
+
+                  {simplefinAccounts.length === 0 ? (
+                    <div style={{ opacity: 0.7, fontWeight: 700 }}>No SimpleFIN accounts detected yet. Run a sync first.</div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: '0.75rem' }}>
+                      {simplefinAccounts.map(a => {
+                        const entry = simplefinAccountMap[a.id] || { kind: 'cash' as const };
+                        return (
+                          <div key={a.id} style={{ border: '2px solid black', padding: '0.75rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                              <div style={{ fontWeight: 900 }}>{a.name}</div>
+                              <span className="badge">{a.id}</span>
+                            </div>
+
+                            <div style={{ marginTop: '0.5rem', display: 'grid', gap: '0.5rem' }}>
+                              <label style={{ fontWeight: 900, fontSize: '0.8rem' }}>Type</label>
+                              <NeoSelect
+                                className="neo-select"
+                                value={entry.kind}
+                                onChange={(v) => updateMapEntry(a.id, { kind: v as 'cash' | 'debt' | 'asset' | 'ignore' })}
+                                options={[
+                                  { value: 'cash', label: 'Cash (Checking/Income/Expenses)' },
+                                  { value: 'debt', label: 'Debt (Credit Card / Loan)' },
+                                  { value: 'asset', label: 'Asset (Savings/Investment)' },
+                                  { value: 'ignore', label: 'Ignore' },
+                                ]}
+                              />
+
+                              {entry.kind === 'debt' && (
+                                <>
+                                  <label style={{ fontWeight: 900, fontSize: '0.8rem' }}>Link to Debt Account</label>
+                                  <NeoSelect
+                                    className="neo-select"
+                                    value={entry.debtAccountId || ''}
+                                    onChange={(v) => updateMapEntry(a.id, { debtAccountId: v })}
+                                    options={[
+                                      { value: '', label: '-- Pick one --' },
+                                      ...debts.map(d => ({ value: d.id, label: d.name })),
+                                    ]}
+                                  />
+                                  <button type="button" className="neo-btn white" onClick={() => createAndLinkDebt(a.id, a.name)}>
+                                    Create Debt Account
+                                  </button>
+                                </>
+                              )}
+
+                              {entry.kind === 'asset' && (
+                                <>
+                                  <label style={{ fontWeight: 900, fontSize: '0.8rem' }}>Link to Asset Account</label>
+                                  <NeoSelect
+                                    className="neo-select"
+                                    value={entry.assetAccountId || ''}
+                                    onChange={(v) => updateMapEntry(a.id, { assetAccountId: v })}
+                                    options={[
+                                      { value: '', label: '-- Pick one --' },
+                                      ...assets.map(a2 => ({ value: a2.id, label: a2.name })),
+                                    ]}
+                                  />
+                                  <button type="button" className="neo-btn white" onClick={() => createAndLinkAsset(a.id, a.name)}>
+                                    Create Asset Account
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </form>
         </div>

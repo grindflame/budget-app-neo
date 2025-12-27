@@ -88,7 +88,7 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({
     };
 
     // Type selection logic
-    const isDebtRelated = type === 'debt' || type === 'debt-payment' || type === 'debt-interest';
+    const isDebtRelated = type === 'debt' || type === 'debt-payment' || type === 'debt-interest' || (type as string) === 'debt-charge';
     const isAssetRelated = type === 'asset-deposit' || type === 'asset-growth';
 
     const title = mode === 'edit' ? 'Edit Entry' : 'Add New Entry';
@@ -145,6 +145,7 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({
                             { value: 'income', label: 'Income' },
                             { value: 'debt-payment', label: 'Debt Payment' },
                             { value: 'debt-interest', label: 'Debt Interest' },
+                            { value: 'debt-charge', label: 'Debt Charge (Card Spend)' },
                             { value: 'asset-deposit', label: 'Asset Deposit (Savings)' },
                             { value: 'asset-growth', label: 'Asset Growth (Interest)' },
                         ]}
