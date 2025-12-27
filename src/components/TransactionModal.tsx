@@ -38,6 +38,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           width: '100%',
           maxWidth: '520px',
           position: 'relative',
+          maxHeight: '90vh',
+          overflowY: 'auto',
         }}
       >
         <button

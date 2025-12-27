@@ -68,11 +68,11 @@ interface BudgetContextType {
   editTransaction: (id: string, updated: Omit<Transaction, 'id'>) => void;
   deleteTransaction: (id: string) => void;
 
-  addDebt: (d: Omit<DebtAccount, 'id'>) => void;
+  addDebt: (d: Omit<DebtAccount, 'id'>) => string;
   editDebt: (id: string, updated: Omit<DebtAccount, 'id'>) => void;
   deleteDebt: (id: string) => void;
 
-  addAsset: (a: Omit<AssetAccount, 'id'>) => void; // New
+  addAsset: (a: Omit<AssetAccount, 'id'>) => string; // New
   editAsset: (id: string, updated: Omit<AssetAccount, 'id'>) => void; // New
   deleteAsset: (id: string) => void; // New
 
@@ -229,7 +229,9 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const addDebt = (d: Omit<DebtAccount, 'id'>) => {
-    setDebts(prev => [...prev, { ...d, id: crypto.randomUUID() }]);
+    const id = crypto.randomUUID();
+    setDebts(prev => [...prev, { ...d, id }]);
+    return id;
   };
 
   const editDebt = (id: string, updated: Omit<DebtAccount, 'id'>) => {
@@ -243,7 +245,9 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const addAsset = (a: Omit<AssetAccount, 'id'>) => {
-    setAssets(prev => [...prev, { ...a, id: crypto.randomUUID() }]);
+    const id = crypto.randomUUID();
+    setAssets(prev => [...prev, { ...a, id }]);
+    return id;
   };
 
   const editAsset = (id: string, updated: Omit<AssetAccount, 'id'>) => {

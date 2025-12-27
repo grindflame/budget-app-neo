@@ -48,6 +48,11 @@ export const BudgetCharts: React.FC<BudgetChartsProps> = ({ transactions, curren
     const trendData = useMemo(() => {
         const data = [];
 
+      const isTransferDesc = (desc: string) => {
+        const d = (desc || '').toLowerCase();
+        return d.includes('transfer to') || d.includes('transfer from') || d.includes('trf to') || d.includes('trf fr') || d.includes('overdraft transfer');
+      };
+
       const chargedDebtIdsForPeriod = (yyyy_mm: string) => {
         const txx = transactions.filter(t => t.date.startsWith(yyyy_mm));
         return new Set(
@@ -73,6 +78,7 @@ export const BudgetCharts: React.FC<BudgetChartsProps> = ({ transactions, curren
             .filter(t => {
               if (!t.date.startsWith(yyyy_mm)) return false;
               if (t.type === 'income') return false;
+              if (t.type === 'expense' && isTransferDesc(t.description)) return false;
               // Don't double-count credit-card payments if we already count charges/interest as spend.
               if ((t.type === 'debt' || t.type === 'debt-payment') && t.debtAccountId && chargedDebtIds.has(t.debtAccountId)) return false;
               // Ignore asset growth (not cash out) but count asset-deposit as an outflow from cash.
@@ -103,6 +109,7 @@ export const BudgetCharts: React.FC<BudgetChartsProps> = ({ transactions, curren
           .filter(t => {
             if (!t.date.startsWith(yyyy_mm)) return false;
             if (t.type === 'income') return false;
+            if (t.type === 'expense' && isTransferDesc(t.description)) return false;
             if ((t.type === 'debt' || t.type === 'debt-payment') && t.debtAccountId && chargedDebtIds.has(t.debtAccountId)) return false;
             if (t.type === 'asset-growth') return false;
             return true;
@@ -125,7 +132,11 @@ export const BudgetCharts: React.FC<BudgetChartsProps> = ({ transactions, curren
       // Only budget spend types (avoid pollution from transfers like debt payments and savings transfers).
       const relevantT = transactions.filter(t => {
         if (!t.date.startsWith(periodKey)) return false;
-        if (t.type === 'expense') return true;
+        if (t.type === 'expense') {
+          const d = (t.description || '').toLowerCase();
+          const isTransfer = d.includes('transfer') || d.includes('trf to') || d.includes('trf fr') || d.includes('overdraft transfer');
+          return !isTransfer;
+        }
         if ((t.type as string) === 'debt-charge') return true;
         if (t.type === 'debt-interest') return true;
         return false;

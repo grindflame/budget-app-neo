@@ -114,17 +114,16 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ open, onClose }) => 
 
   const createAndLinkDebt = (accountId: string, accountName: string) => {
     const name = `Debt: ${accountName}`;
-    addDebt({ name, startingBalance: 0 });
-    // We can't know the new ID synchronously, so ask user to select it after creation.
-    alert(`Created debt account "${name}" with $0 starting balance. Now select it in the dropdown to link.`);
-    updateMapEntry(accountId, { kind: 'debt' });
+    const id = addDebt({ name, startingBalance: 0 });
+    updateMapEntry(accountId, { kind: 'debt', debtAccountId: id });
+    alert(`Created + linked debt account "${name}".`);
   };
 
   const createAndLinkAsset = (accountId: string, accountName: string) => {
     const name = `Asset: ${accountName}`;
-    addAsset({ name, startingBalance: 0 });
-    alert(`Created asset account "${name}" with $0 starting balance. Now select it in the dropdown to link.`);
-    updateMapEntry(accountId, { kind: 'asset' });
+    const id = addAsset({ name, startingBalance: 0 });
+    updateMapEntry(accountId, { kind: 'asset', assetAccountId: id });
+    alert(`Created + linked asset account "${name}".`);
   };
 
   const applyStartingBalanceFromSimplefin = (kind: 'debt' | 'asset', linkedId: string, reportedBalance: string | undefined, accountName: string) => {

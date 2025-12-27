@@ -21,11 +21,16 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ transactions, curren
     }, [transactions, periodKey]);
 
     const cashflow = useMemo(() => {
+    const isTransferDesc = (desc: string) => {
+      const d = (desc || '').toLowerCase();
+      return d.includes('transfer to') || d.includes('transfer from') || d.includes('trf to') || d.includes('trf fr') || d.includes('overdraft transfer');
+    };
+
         const income = tx.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
 
     // Budget spend: cash expenses + credit card charges + debt interest
     const spend = tx
-      .filter(t => t.type === 'expense' || (t.type as string) === 'debt-charge' || t.type === 'debt-interest')
+      .filter(t => (t.type === 'expense' && !isTransferDesc(t.description)) || (t.type as string) === 'debt-charge' || t.type === 'debt-interest')
       .reduce((acc, t) => acc + t.amount, 0);
 
         // Debt Payments (Outflow)
@@ -63,7 +68,7 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ transactions, curren
         // Only compare "expense" types to category budgets (keeps it intuitive)
         const spendByCategory: Record<string, number> = {};
         tx
-      .filter(t => t.type === 'expense' || (t.type as string) === 'debt-charge' || t.type === 'debt-interest')
+            .filter(t => (t.type === 'expense' && !((t.description || '').toLowerCase().includes('transfer'))) || (t.type as string) === 'debt-charge' || t.type === 'debt-interest')
             .forEach(t => {
                 spendByCategory[t.category] = (spendByCategory[t.category] || 0) + t.amount;
             });
